@@ -1,0 +1,46 @@
+cabal-version:      2.4
+name:               HazardHunter
+version:            0.1.0.0
+homepage:           https://github.com/web-apps-top/HazardHunter/README.md
+bug-reports:        https://github.com/web-apps-top/HazardHunter/issues
+synopsis:           HTMX Playground
+description:        HTMX PLayground
+license-file:       LICENSE
+author:             Fabien Boucher
+maintainer:         web.apps.top@gmail.com
+copyright:          2022 Fabien Boucher
+extra-source-files:
+    README.md
+
+common common-options
+    default-language: Haskell2010
+    default-extensions: LambdaCase
+                      , NoImplicitPrelude
+                      , OverloadedStrings
+                      , RecordWildCards
+                      , NamedFieldPuns
+                      , DeriveGeneric
+                      , DataKinds
+                      , OverloadedRecordDot
+                      , QuasiQuotes
+                      , TypeOperators
+                      , TypeApplications
+    ghc-options:      -Wall
+                      -threaded
+
+    build-depends:    base < 5
+
+library
+    import:           common-options
+    exposed-modules:  HazardHunter
+    build-depends:    butler
+    hs-source-dirs:   src
+
+executable HazardHunter
+    import:           common-options
+    main-is:          Main.hs
+
+    build-depends:    HazardHunter
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
