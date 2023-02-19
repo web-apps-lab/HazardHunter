@@ -30,7 +30,7 @@
 
         hsPkgs = pkgs.hspkgs.extend haskellExtend;
 
-        appExe = pkgs.haskell.lib.justStaticExecutables hsPkgs.takoyaki;
+        appExe = pkgs.haskell.lib.justStaticExecutables hsPkgs.appPackage;
 
       in {
         defaultExe = appExe;

@@ -3,8 +3,10 @@ name:               HazardHunter
 version:            0.1.0.0
 homepage:           https://github.com/web-apps-top/HazardHunter/README.md
 bug-reports:        https://github.com/web-apps-top/HazardHunter/issues
-synopsis:           HTMX Playground
-description:        HTMX PLayground
+synopsis:           Minesweeper like game - Find Hazards and Enter leaderboard
+description:        HazardHunter is a mini web game based on the legendary Minesweeper game's logic.
+                    Goal is to discover various Hazards by guessing their places on the board.
+                    Best scores are stored in the leaderboard.
 license-file:       LICENSE
 author:             Fabien Boucher
 maintainer:         web.apps.top@gmail.com
@@ -26,14 +28,14 @@ common common-options
                       , TypeOperators
                       , TypeApplications
     ghc-options:      -Wall
-                      -threaded
 
     build-depends:    base < 5
+                    , butler
 
 library
     import:           common-options
     exposed-modules:  HazardHunter
-    build-depends:    butler
+    build-depends:
     hs-source-dirs:   src
 
 executable HazardHunter
@@ -44,3 +46,5 @@ executable HazardHunter
 
     hs-source-dirs:   app
     default-language: Haskell2010
+    ghc-options:      -Wall
+                      -threaded
