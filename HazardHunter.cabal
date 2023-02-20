@@ -27,10 +27,16 @@ common common-options
                       , QuasiQuotes
                       , TypeOperators
                       , TypeApplications
+                      , TupleSections
     ghc-options:      -Wall
 
     build-depends:    base < 5
                     , butler
+                    , lucid-xstatic
+                    , aeson
+                    , containers
+                    , random
+                    , text
 
 library
     import:           common-options
