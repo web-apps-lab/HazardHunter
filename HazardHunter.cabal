@@ -37,10 +37,15 @@ common common-options
                     , containers
                     , random
                     , text
+                    , serialise
+                    , websockets
+                    , string-interpolate
 
 library
     import:           common-options
     exposed-modules:  HazardHunter
+                    , HazardHunter.Engine
+                    , HazardHunter.Htmx
     build-depends:
     hs-source-dirs:   src
 

@@ -1,10 +1,9 @@
 module HazardHunter where
 
+-- import Butler hiding (HtmxEvent (body))
 import Butler
 import Butler.Auth.Guest (guestAuthApp)
-import Butler.Logger (LBSLog (..))
 import Butler.Prelude
-import qualified Butler.Session as BS
 import qualified ButlerDemos as BD
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as Aeson
@@ -20,44 +19,9 @@ run :: IO ()
 run = BD.run standaloneGuiApp
 
 standaloneGuiApp :: ProcessIO ()
-standaloneGuiApp = serveAppPerClient BD.defaultXFiles auth mineSweeperApp
+standaloneGuiApp = BD.serveAppPerClient BD.defaultXFiles auth mineSweeperApp
   where
     auth = const . pure . guestAuthApp $ htmlMain BD.defaultXFiles "Standalone GUI" Nothing
-
-serveAppPerClient :: [XStaticFile] -> (BS.Sessions -> ProcessIO AuthApplication) -> App -> ProcessIO ()
-serveAppPerClient xfiles mkAuth app = do
-  desktop <- superviseProcess "gui" $
-    startDisplay 8085 xfiles mkAuth $ \_ -> do
-      pure $ \_ws -> do
-        env <- ask
-        -- The list of clients and the app instance is re-created per client
-        clients <- atomically newDisplayClients
-        appInstance <- startApp app clients (WinID 0)
-        pure (env, clientHandler clients appInstance)
-
-  void $ awaitProcess desktop
-  where
-    clientHandler :: DisplayClients -> AppInstance -> DisplayEvent -> ProcessIO ()
-    clientHandler clients appInstance displayEvent = case displayEvent of
-      UserConnected "htmx" client -> do
-        logInfo "Client connected" ["client" .= client]
-        spawnThread_ (pingThread client)
-        spawnThread_ (sendThread client)
-        atomically $ do
-          addClient clients client
-        writePipe appInstance.pipeAE (AppDisplay displayEvent)
-        forever $ do
-          dataMessage <- recvData client
-          case eventFromMessage client dataMessage of
-            Nothing -> logError "Unknown data" ["ev" .= LBSLog (into @LByteString dataMessage)]
-            Just (_wid, ae) -> writePipe appInstance.pipeAE ae
-      UserDisconnected "htmx" client -> do
-        logInfo "Client disconnected" ["client" .= client]
-        atomically $ do
-          addClient clients client
-        writePipe appInstance.pipeAE (AppDisplay displayEvent)
-        void $ killProcess appInstance.process.pid
-      _ -> logError "Unknown event" ["ev" .= displayEvent]
 
 htmlMain :: [XStaticFile] -> Text -> Maybe (Html ()) -> Html ()
 htmlMain xfiles title mHtml = do
@@ -72,6 +36,8 @@ htmlMain xfiles title mHtml = do
       with div_ [id_ "display-ws", class_ "h-full", makeAttribute "hx-ext" "ws", makeAttribute "ws-connect" "/ws/htmx"] $ do
         with div_ [id_ "w-0", class_ "h-full"] mempty
         forM_ mHtml id
+
+---- State
 
 data MSState = MSState
   { board :: MSBoard,
@@ -106,6 +72,10 @@ data MSEvent
   = NewGame MSBoard
   | OpenCell MSCellCoord
   deriving (Show)
+
+---- State
+
+---- Initialize
 
 initBoard :: IO MSBoard
 initBoard = do
