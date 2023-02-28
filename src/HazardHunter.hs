@@ -8,8 +8,8 @@ import qualified ButlerDemos as BD
 -- import qualified Data.Aeson as Aeson
 -- import qualified Data.Aeson.KeyMap as Aeson
 -- import qualified Data.Aeson.Text as Aeson
--- import qualified Data.Map as Map
--- import qualified Data.Text as T
+import qualified Data.Map as Map
+import qualified Data.Text as T
 -- import Data.Text.Lazy (toStrict)
 import HazardHunter.Engine
 import Lucid.XStatic
@@ -17,6 +17,7 @@ import Lucid.XStatic
 
 import Text.Printf (printf)
 import Prelude
+import HazardHunter.Htmx (mkHxVals)
 
 run :: IO ()
 run = BD.run standaloneGuiApp
@@ -308,11 +309,14 @@ startMineSweeper clients wid pipeAE = do
         UserConnected _ client -> atomically $ sendHtml client (renderApp wid state)
         _ -> pure ()
       WaitCompleted (AppTrigger ev) -> case ev of
-        GuiEvent _ (TriggerName "play") _ -> do
+        GuiEvent _client (TriggerName "play") _ -> do
           logInfo "Got <play> game event" []
           pure ()
         GuiEvent _ (TriggerName "setFlagMode") _ -> do
           logInfo "Got <setFlagMode> game event" []
+          pure ()
+        GuiEvent _ (TriggerName "clickCell") coords -> do
+          logInfo "Got <clickCell> game event" ["data" .= coords]
           pure ()
         _ -> logInfo "Got unknown game event" ["ev" .= ev]
       WaitCompleted _ -> pure ()
@@ -327,8 +331,7 @@ renderApp :: WinID -> TVar MSState -> HtmlT STM ()
 renderApp wid state = do
   div_ [id_ (withWID wid "w"), class_ "w-60 border-2 border-gray-400 bg-gray-100"] $ do
     renderPanel wid state Nothing
-
--- renderBoard wid state
+    renderBoard wid state
 
 withThemeBgColor :: Color -> Text -> Text -> Text
 withThemeBgColor = withThemeColor "bg"
@@ -394,3 +397,51 @@ renderPanel wid appStateV durationM = do
   where
     hazardLabel :: Int -> Hazard -> Text
     hazardLabel count hazard = from (show count) <> " " <> hazardToText hazard
+
+renderBoard :: WinID -> TVar MSState -> HtmlT STM ()
+renderBoard wid appStateV = do
+  appState <- lift $ readTVar appStateV
+  let sizeCount' = sizeCount $ levelToBoardSettings appState.settings.level
+  let gridType = "grid-cols-[" <> T.intercalate "_" (Prelude.replicate (sizeCount' + 1) "20px") <> "]"
+  div_ [id_ "MSBoard"] $ do
+    div_ [class_ "flex place-content-center m-1"] $ do
+      div_ [class_ $ "grid gap-1 " <> gridType] $ do
+        mapM_ (renderCell appState.state appState.settings.hazard appState.settings.color) $
+          Map.toList appState.board
+  where
+    renderCell :: MSGameState -> Hazard -> Color -> (MSCellCoord, MSCell) -> HtmlT STM ()
+    renderCell gameState hazard color (cellCoords, cellState) =
+      let cellId = mkHxVals [("cx", T.pack $ show $ cellCoords.cx), ("cy", T.pack $ show $ cellCoords.cy)]
+       in installCellEvent gameState cellId $
+            div_ [class_ $ withThemeBgColor color "100" "text-center cursor-pointer"] $
+              case cellState of
+                MSCell (Blank v) Open
+                  | v == 0 -> div_ [class_ "h-6 w-full "] ""
+                  | v == 1 -> div_ [class_ "font-bold text-blue-700"] $ showCellValue v
+                  | v == 2 -> div_ [class_ "font-bold text-green-700"] $ showCellValue v
+                  | v == 3 -> div_ [class_ "font-bold text-red-700"] $ showCellValue v
+                  | v == 4 -> div_ [class_ "font-bold text-blue-900"] $ showCellValue v
+                  | v == 5 -> div_ [class_ "font-bold text-red-900"] $ showCellValue v
+                  | v == 6 -> div_ [class_ "font-bold text-green-900"] $ showCellValue v
+                  | v == 7 -> div_ [class_ "font-bold text-brown-700"] $ showCellValue v
+                  | v == 8 -> div_ [class_ "font-bold text-black-700"] $ showCellValue v
+                MSCell (Blank _) Open -> error "Impossible case"
+                MSCell Mine Open -> mineCell
+                MSCell (Blank _) (Hidden True) -> flagCell
+                MSCell Mine (Hidden flag) -> case gameState of
+                  Gameover -> mineCell
+                  _ -> if flag then flagCell else hiddenCell
+                MSCell _ _ -> hiddenCell
+      where
+        mineCell = div_ [class_ "bg-red-500"] $ toHtml $ hazardToText hazard
+        hiddenCell = div_ [class_ $ withThemeBgColor color "300" "border-2 rounded border-r-gray-400 border-b-gray-400 h-6 w-full"] ""
+        flagCell = div_ [class_ $ withThemeBgColor color "300" "border-2 rounded border-r-gray-400 border-b-gray-400 h-6 w-full"] "🚩"
+        showCellValue :: Int -> HtmlT STM ()
+        showCellValue = toHtml . show
+        installCellEvent :: MSGameState -> Attribute -> HtmlT STM () -> HtmlT STM ()
+        installCellEvent gs cellId elm =
+          let elm' = withEvent wid "clickCell" [cellId] elm
+           in  case gs of
+                Play _ _ -> elm'
+                Wait -> elm'
+                _ -> elm

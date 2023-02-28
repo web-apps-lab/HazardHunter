@@ -1,2 +1,2 @@
 #!/bin/sh
-nix develop --command ghcid -W --test "HazardHunter.run"
+ghcid -W --test "HazardHunter.run"
