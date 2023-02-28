@@ -12,12 +12,12 @@ import qualified Data.Map as Map
 import qualified Data.Text as T
 -- import Data.Text.Lazy (toStrict)
 import HazardHunter.Engine
-import Lucid.XStatic
 -- import System.Random (randomRIO)
 
+import HazardHunter.Htmx (mkHxVals)
+import Lucid.XStatic
 import Text.Printf (printf)
 import Prelude
-import HazardHunter.Htmx (mkHxVals)
 
 run :: IO ()
 run = BD.run standaloneGuiApp
@@ -309,18 +309,47 @@ startMineSweeper clients wid pipeAE = do
         UserConnected _ client -> atomically $ sendHtml client (renderApp wid state)
         _ -> pure ()
       WaitCompleted (AppTrigger ev) -> case ev of
-        GuiEvent _client (TriggerName "play") _ -> do
-          logInfo "Got <play> game event" []
-          pure ()
-        GuiEvent _ (TriggerName "setFlagMode") _ -> do
-          logInfo "Got <setFlagMode> game event" []
-          pure ()
-        GuiEvent _ (TriggerName "clickCell") coords -> do
-          logInfo "Got <clickCell> game event" ["data" .= coords]
-          pure ()
-        _ -> logInfo "Got unknown game event" ["ev" .= ev]
+        GuiEvent client tn td -> do
+          appEvent <- toAppEvents tn td
+          case appEvent of
+            Just NewGame -> atomically $ sendHtml client (p_ "NewGame")
+            Just SetFlagMode -> atomically $ sendHtml client (p_ "SetFlagMode")
+            Just (ClickCell coords) -> atomically $ sendHtml client (p_ $ toHtml $ show coords)
+            Just (SettingsSelected level playerName boardColor) -> atomically $ sendHtml client (p_ "")
+            _ -> pure ()
       WaitCompleted _ -> pure ()
     clientsHtmlT clients $ renderApp wid state
+  where
+    toAppEvents :: TriggerName -> Value -> ProcessIO (Maybe MSEvent)
+    toAppEvents tn td = case tn of
+      TriggerName "play" -> do
+        logInfo "Got <play> game event" []
+        pure $ Just NewGame
+      TriggerName "setFlagMode" -> do
+        logInfo "Got <setFlagMode> game event" []
+        pure $ Just SetFlagMode
+      TriggerName "clickCell" -> do
+        logInfo "Got <clickCell> game event" ["data" .= td]
+        case (td ^? key "cx" . _String, td ^? key "cy" . _String) of
+          (Just cxS, Just cyS) -> do
+            let cxM = readMaybe $ from cxS :: Maybe Int
+                cyM = readMaybe $ from cyS :: Maybe Int
+            case (cxM, cyM) of
+              (Just cx, Just cy) -> pure $ Just $ ClickCell (MSCellCoord cx cy)
+              _ -> pure Nothing
+          _ -> pure Nothing
+      TriggerName "setSettings" -> do
+        logInfo "Got <setSettings> game event" ["data" .= td]
+        case ( td ^? key "level" . _String,
+               td ^? key "playerName" . _String,
+               td ^? key "boardColor" . _String
+             ) of
+          (Just level, Just playerName, Just boardColor) -> do
+            pure . Just $ SettingsSelected (from level) playerName (from boardColor)
+          _ -> pure Nothing
+      _ -> do
+        logInfo "Got unknown game event" ["TriggerName" .= tn]
+        pure Nothing
 
 withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
 withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
@@ -441,7 +470,7 @@ renderBoard wid appStateV = do
         installCellEvent :: MSGameState -> Attribute -> HtmlT STM () -> HtmlT STM ()
         installCellEvent gs cellId elm =
           let elm' = withEvent wid "clickCell" [cellId] elm
-           in  case gs of
+           in case gs of
                 Play _ _ -> elm'
                 Wait -> elm'
                 _ -> elm
