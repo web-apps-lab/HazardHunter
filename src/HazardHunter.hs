@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use if" #-}
 module HazardHunter where
 
 -- import Butler hiding (HtmxEvent (body))
@@ -11,9 +14,11 @@ import qualified ButlerDemos as BD
 import qualified Data.Map as Map
 import qualified Data.Text as T
 -- import Data.Text.Lazy (toStrict)
-import HazardHunter.Engine
+
 -- import System.Random (randomRIO)
 
+import Data.Time (diffUTCTime, getCurrentTime)
+import HazardHunter.Engine
 import HazardHunter.Htmx (mkHxVals)
 import Lucid.XStatic
 import Text.Printf (printf)
@@ -41,208 +46,6 @@ htmlMain xfiles title mHtml = do
         with div_ [id_ "w-0", class_ "h-full"] mempty
         forM_ mHtml id
 
----- State
-
--- data MSState = MSState
---   { board :: MSBoard,
---     state :: MSGameState
---   }
---   deriving (Show)
-
--- data MSGameState = Play | Gameover deriving (Show)
-
--- data MSCellContent
---   = Mine
---   | Blank Int
---   deriving (Show)
-
--- data MSCellStatus = Open | Hidden deriving (Show)
-
--- data MSCell = MSCell
---   { cellContent :: MSCellContent,
---     cellStatus :: MSCellStatus
---   }
---   deriving (Show)
-
--- data MSCellCoord = MSCellCoord
---   { cx :: Int,
---     cy :: Int
---   }
---   deriving (Show, Eq, Ord, Generic)
-
--- type MSBoard = Map MSCellCoord MSCell
-
--- data MSEvent
---   = NewGame MSBoard
---   | OpenCell MSCellCoord
---   deriving (Show)
-
----- State
-
----- Initialize
-
--- initBoard :: IO MSBoard
--- initBoard = do
---   let cellsCoords = [MSCellCoord x y | x <- [0 .. 9], y <- [0 .. 9]]
---       blankBoard = Map.fromList $ map (,MSCell (Blank 0) Hidden) cellsCoords
---   minesCoords <- getMinesCoords cellsCoords []
---   pure $ setBoard blankBoard minesCoords
---   where
---     getMinesCoords :: [MSCellCoord] -> [MSCellCoord] -> IO [MSCellCoord]
---     getMinesCoords availableCellsCords minesCoords =
---       if length minesCoords == 9
---         then pure minesCoords
---         else do
---           selectedIndex <- randomRIO (0, length availableCellsCords - 1)
---           let selectedCoord = availableCellsCords !! selectedIndex
---               remainingCellsCords = filter (/= selectedCoord) availableCellsCords
---           getMinesCoords remainingCellsCords (minesCoords <> [selectedCoord])
---     setBoard :: MSBoard -> [MSCellCoord] -> MSBoard
---     setBoard board minesCoords =
---       let adjCellds = concatMap getAdjCellCoords minesCoords
---           board' = installAdjCells board adjCellds
---        in installMines board' minesCoords
---       where
---         installMines :: MSBoard -> [MSCellCoord] -> MSBoard
---         installMines b cs = case cs of
---           [] -> b
---           [x] -> Map.insert x (MSCell Mine Hidden) b
---           (x : xs) -> installMines (Map.insert x (MSCell Mine Hidden) b) xs
---         installAdjCells :: MSBoard -> [MSCellCoord] -> MSBoard
---         installAdjCells b cs = case cs of
---           [] -> b
---           [x] -> installAdjCell b x
---           (x : xs) -> installAdjCells (installAdjCell b x) xs
---         installAdjCell :: MSBoard -> MSCellCoord -> MSBoard
---         installAdjCell b c =
---           Map.insertWith
---             ( \_ oldv ->
---                 case oldv of
---                   MSCell (Blank v) s -> MSCell (Blank (v + 1)) s
---                   other -> other
---             )
---             c
---             (MSCell (Blank 1) Hidden)
---             b
-
--- getAdjCellCoords :: MSCellCoord -> [MSCellCoord]
--- getAdjCellCoords MSCellCoord {..} =
---   let isInBoard (MSCellCoord cx' cy') = cx' >= 0 && cx' <= 9 && cy' >= 0 && cy' <= 9
---    in filter
---         isInBoard
---         [ MSCellCoord (cx - 1) (cy - 1),
---           MSCellCoord (cx - 1) cy,
---           MSCellCoord (cx - 1) (cy + 1),
---           MSCellCoord (cx + 1) (cy - 1),
---           MSCellCoord (cx + 1) cy,
---           MSCellCoord (cx + 1) (cy + 1),
---           MSCellCoord cx (cy - 1),
---           MSCellCoord cx (cy + 1)
---         ]
-
--- renderApp :: WinID -> TVar MSState -> HtmlT STM ()
--- renderApp wid state = do
---   div_ [id_ (withWID wid "w"), class_ "w-60 border-2 border-gray-400 bg-gray-100"] $ do
---     renderPanel wid state
---     renderBoard wid state
-
--- renderPanel :: WinID -> TVar MSState -> HtmlT STM ()
--- renderPanel wid state = do
---   appState <- lift (readTVar state)
---   div_ [id_ (withWID wid "MSPanel"), class_ "bg-gray-200 m-1 flex justify-between"] $ do
---     div_ [class_ "w-10"] "9 💣"
---     withEvent (withWID wid "play") [mkHxVals [("play", "")]] $ div_ [class_ "bg-gray-300 border-2"] $ case appState.state of
---       Play -> "🙂"
---       Gameover -> "☹"
---     div_ [class_ "w-10 text-right"] "0"
-
--- renderBoard :: WinID -> TVar MSState -> HtmlT STM ()
--- renderBoard wid state = do
---   appState <- lift (readTVar state)
---   div_ [id_ "MSBoard", class_ "grid grid-cols-10 gap-1"] $ do
---     mapM_ (renderCell appState.state) $ Map.toList appState.board
---   where
---     renderCell :: MSGameState -> (MSCellCoord, MSCell) -> HtmlT STM ()
---     renderCell gameState (cellCoords, cellState) =
---       let cellId = mkHxVals [("cx", T.pack $ show $ cellCoords.cx), ("cy", T.pack $ show $ cellCoords.cy)]
---        in installCellEvent gameState cellId $
---             div_ [class_ "bg-gray-300 text-center"] $
---               case cellState of
---                 MSCell (Blank v) Open
---                   | v == 0 -> div_ [class_ "bg-gray-200 h-6 w-full "] ""
---                   | v == 1 -> div_ [class_ "bg-gray-200 font-bold text-blue-700"] $ showCellValue v
---                   | v == 2 -> div_ [class_ "bg-gray-200 font-bold text-green-700"] $ showCellValue v
---                   | v == 3 -> div_ [class_ "bg-gray-200 font-bold text-red-700"] $ showCellValue v
---                   | v == 4 -> div_ [class_ "bg-gray-200 font-bold text-blue-900"] $ showCellValue v
---                   | v == 5 -> div_ [class_ "bg-gray-200 font-bold text-red-900"] $ showCellValue v
---                   | v == 6 -> div_ [class_ "bg-gray-200 font-bold text-green-900"] $ showCellValue v
---                   | v == 7 -> div_ [class_ "bg-gray-200 font-bold text-brown-700"] $ showCellValue v
---                   | v == 8 -> div_ [class_ "bg-gray-200 font-bold text-black-700"] $ showCellValue v
---                 MSCell (Blank _) Open -> error "Impossible case"
---                 MSCell Mine Open -> div_ [class_ "bg-red-500"] "💣"
---                 MSCell _ Hidden -> div_ [class_ "border-2 border-r-gray-400 border-b-gray-400 h-6 w-full"] ""
---       where
---         showCellValue :: Monad m => Int -> HtmlT m ()
---         showCellValue = toHtml . show
---         installCellEvent :: Monad m => MSGameState -> Attribute -> HtmlT m () -> HtmlT m ()
---         installCellEvent gs cellId elm = case gs of
---           Gameover -> elm
---           Play -> withEvent (withWID wid "showCell") [cellId] elm
-
--- getCell :: MSCellCoord -> MSBoard -> Maybe MSCell
--- getCell = Map.lookup
-
--- openCell :: MSCellCoord -> MSBoard -> MSBoard
--- openCell = Map.update func
---   where
---     func :: MSCell -> Maybe MSCell
---     func (MSCell content _) = Just $ MSCell content Open
-
--- isBlank0Cell :: MSCellCoord -> MSBoard -> Bool
--- isBlank0Cell cellCoord board = case getCell cellCoord board of
---   Just (MSCell (Blank 0) _) -> True
---   _ -> False
-
--- isHiddenCell :: MSCellCoord -> MSBoard -> Bool
--- isHiddenCell cellCoord board = case getCell cellCoord board of
---   Just (MSCell _ Hidden) -> True
---   _ -> False
-
--- isMineCell :: MSCellCoord -> MSBoard -> Bool
--- isMineCell cellCoord board = case getCell cellCoord board of
---   Just (MSCell Mine _) -> True
---   _ -> False
-
--- openAdjBlank0Cells :: MSCellCoord -> MSBoard -> MSBoard
--- openAdjBlank0Cells cellCoord board =
---   if isBlank0Cell cellCoord board
---     then openCells (getAdjCellCoords cellCoord) board
---     else board
---   where
---     openCells :: [MSCellCoord] -> MSBoard -> MSBoard
---     openCells cellsCoords b = case cellsCoords of
---       [] -> b
---       [x] -> openCell' x b
---       (x : xs) -> openCells xs $ openCell' x b
---     openCell' coord b =
---       if isHiddenCell coord b
---         then let nb = openCell coord b in openAdjBlank0Cells coord nb
---         else b
-
--- withEvent :: Monad m => Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
--- withEvent tId tAttrs elm = with elm ([id_ tId, wsSend' ""] <> tAttrs)
---   where
---     wsSend' = makeAttribute "ws-send"
-
--- mkHxVals :: [(Aeson.Key, Text)] -> Attribute
--- mkHxVals vals =
---   hxVals
---     . toStrict
---     . Aeson.encodeToLazyText
---     $ Aeson.fromList vals
---   where
---     hxVals = makeAttribute "hx-vals"
-
 mineSweeperApp :: App
 mineSweeperApp =
   App
@@ -253,50 +56,107 @@ mineSweeperApp =
       start = startMineSweeper
     }
 
--- startMineSweeper' :: AppStart
--- startMineSweeper' clients wid pipeAE = do
---   board <- liftIO initBoard
---   state <- newTVarIO $ MSState board Play
---   forever $ do
---     res <- atomically =<< waitTransaction 60000 (readPipe pipeAE)
---     case res of
---       WaitTimeout {} -> pure ()
---       WaitCompleted (AppDisplay de) -> case de of
---         UserConnected _ client -> atomically $ sendHtml client (renderApp wid state)
---         _ -> pure ()
---       WaitCompleted (AppTrigger ev) -> case ( ev.body ^? key "play" . _String,
---                                               ev.body ^? key "cx" . _String,
---                                               ev.body ^? key "cy" . _String
---                                             ) of
---         (Just "", Nothing, Nothing) -> do
---           newBoard <- liftIO initBoard
---           atomically $ writeTVar state (MSState newBoard Play)
---         (_, Just cxS, Just cyS) -> do
---           let cxM = readMaybe $ from cxS :: Maybe Int
---               cyM = readMaybe $ from cyS :: Maybe Int
---           case (cxM, cyM) of
---             (Just cx, Just cy) -> do
---               appState <- readTVarIO state
---               let cellCoord = MSCellCoord cx cy
---               if isMineCell cellCoord appState.board
---                 then do
---                   atomically $
---                     writeTVar
---                       state
---                       (MSState (openCell cellCoord appState.board) Gameover)
---                 else do
---                   let gs1 = openCell cellCoord appState.board
---                       gs2 = openAdjBlank0Cells cellCoord gs1
---                   atomically $ writeTVar state (MSState gs2 Play)
---             _ -> pure ()
---         _ -> pure ()
---       WaitCompleted _ -> pure ()
---     clientsHtmlT clients $ renderApp wid state
+handleEvent :: DisplayClient -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
+handleEvent client wId msEv appStateV = do
+  case msEv of
+    NewGame -> atomically $ do
+      -- writeTBQueue serviceQ StopTimer
+      sendHtml client $ renderPanel wId appStateV (Just 0.0)
+      sendHtml client $ renderSettings wId appStateV
+    SettingsSelected level playerName boardColor -> do
+      newBoard <- liftIO . initBoard $ levelToBoardSettings level
+      hazard <- liftIO randomHazard
+      atomically $ do
+        modifyTVar' appStateV $ \s ->
+          s
+            { board = newBoard,
+              state = Wait,
+              settings = MSSettings level playerName boardColor hazard
+            }
+        sendHtml client $ renderApp wId appStateV
+    SetFlagMode -> do
+      atomically $ do
+        appState <- readTVar appStateV
+        case appState.state of
+          Play st fm -> do
+            modifyTVar' appStateV $ \s -> s {state = Play st (not fm)}
+            sendHtml client $ renderFlag wId appStateV
+          _ -> pure ()
+    ClickCell cellCoord -> do
+      atTime <- liftIO getCurrentTime
+      appState' <- readTVarIO appStateV
+      case countOpenCells appState'.board of
+        0 -> do
+          -- Ensure the first click on the board is not a hazard
+          newBoard <- liftIO $ ensureNFBoard appState'.board cellCoord appState'.settings.level
+          atomically $ modifyTVar' appStateV $ \s -> s {board = newBoard}
+          pure ()
+        _ -> pure ()
+      case appState'.state of
+        Wait -> atomically $ do
+          modifyTVar' appStateV $ \s -> s {state = Play atTime False}
+        -- writeTBQueue serviceQ StartTimer
+        _ -> pure ()
+      appState <- readTVarIO appStateV
+      case appState.state of
+        Play _ False -> do
+          let playDuration = mkPlayDuration appState.state atTime
+          case isFlagCell cellCoord appState.board of
+            True -> pure ()
+            False -> do
+              case isMineCell cellCoord appState.board of
+                True -> do
+                  -- writeTBQueue serviceQ StopTimer
+                  atomically $ do
+                    modifyTVar' appStateV $ \s ->
+                      s
+                        { board = openCell cellCoord appState.board,
+                          state = Gameover
+                        }
+                    sendHtml client $ renderBoard wId appStateV
+                    sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                False -> do
+                  let gs1 = openCell cellCoord appState.board
+                      gs2 = openAdjBlank0Cells (levelToBoardSettings appState.settings.level) cellCoord gs1
+                  case countHiddenBlank gs2 == 0 of
+                    True -> do
+                      atomically $ do
+                        -- writeTBQueue serviceQ StopTimer
+                        modifyTVar' appStateV $ \s -> s {board = gs2, state = Win}
+                        sendHtml client $ renderBoard wId appStateV
+                        sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                    -- addScore dbConn appState.settings.playerName atTime playDuration appState.settings.level
+                    -- leaderBoard <- renderLeaderBoard appStateV dbConn
+                    -- pure [board, panel, leaderBoard]
+                    False -> do
+                      atomically $ do
+                        modifyTVar' appStateV $ \s -> s {board = gs2}
+                        sendHtml client $ renderBoard wId appStateV
+                        sendHtml client $ renderSmiley wId appStateV
+        Play _ True -> atomically $ do
+          let board = setFlagOnCell cellCoord appState.board
+          modifyTVar' appStateV $ \s -> s {board}
+          sendHtml client $ renderFlag wId appStateV
+          sendHtml client $ renderBoard wId appStateV
+        _ -> pure ()
+    _ -> pure ()
+  where
+    mkPlayDuration :: MSGameState -> UTCTime -> Float
+    mkPlayDuration s curD = case s of
+      Play startDate _ -> diffTimeToFloat curD startDate
+      _ -> error "Should not happen"
+    ensureNFBoard :: MSBoard -> MSCellCoord -> MSLevel -> IO MSBoard
+    ensureNFBoard board cellCoord level = case isMineCell cellCoord board of
+      True -> do
+        newBoard <- initBoard $ levelToBoardSettings level
+        ensureNFBoard newBoard cellCoord level
+      False -> pure board
 
---- ===================================
+diffTimeToFloat :: UTCTime -> UTCTime -> Float
+diffTimeToFloat a b = realToFrac $ diffUTCTime a b
 
 startMineSweeper :: AppStart
-startMineSweeper clients wid pipeAE = do
+startMineSweeper _clients wid pipeAE = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
@@ -310,15 +170,11 @@ startMineSweeper clients wid pipeAE = do
         _ -> pure ()
       WaitCompleted (AppTrigger ev) -> case ev of
         GuiEvent client tn td -> do
-          appEvent <- toAppEvents tn td
-          case appEvent of
-            Just NewGame -> atomically $ sendHtml client (p_ "NewGame")
-            Just SetFlagMode -> atomically $ sendHtml client (p_ "SetFlagMode")
-            Just (ClickCell coords) -> atomically $ sendHtml client (p_ $ toHtml $ show coords)
-            Just (SettingsSelected level playerName boardColor) -> atomically $ sendHtml client (p_ "")
+          appEventM <- toAppEvents tn td
+          case appEventM of
+            Just appEvent -> handleEvent client wid appEvent state
             _ -> pure ()
       WaitCompleted _ -> pure ()
-    clientsHtmlT clients $ renderApp wid state
   where
     toAppEvents :: TriggerName -> Value -> ProcessIO (Maybe MSEvent)
     toAppEvents tn td = case tn of
@@ -474,3 +330,67 @@ renderBoard wid appStateV = do
                 Play _ _ -> elm'
                 Wait -> elm'
                 _ -> elm
+
+renderSettings :: WinID -> TVar MSState -> HtmlT STM ()
+renderSettings wid appStateV = do
+  appState <- lift $ readTVar appStateV
+  let playerName = appState.settings.playerName
+      selectedLevel = appState.settings.level
+  div_ [id_ "MSBoard"] $ do
+    withEvent wid "setSettings" [] $ do
+      form_ [class_ $ withThemeBgColor appState.settings.color "100" "flex flex-col items-center gap-px"] $ do
+        div_ [class_ "my-2"] $ startButton appState
+        label_ [class_ "m-1 font-semibold"] "Set the board color"
+        colorInput appState.settings.color
+        label_ [class_ "m-1 font-semibold"] "Set your name"
+        nameInput playerName
+        label_ [class_ "m-1 font-semibold"] "Select a level"
+        mapM_ (div_ . levelButton selectedLevel) [minBound .. maxBound]
+  where
+    colorInput :: Color -> HtmlT STM ()
+    colorInput colorFromSettings =
+      select_
+        [ class_ "block mb-2 text-center border border-slate-300 rounded-md",
+          name_ "boardColor"
+        ]
+        $ mapM_ (\c -> option_ (setValue c) (toHtml $ show c)) [minBound .. maxBound]
+      where
+        setValue :: Color -> [Attribute]
+        setValue color =
+          let selected = if colorFromSettings == color then [selected_ ""] else mempty
+           in [value_ . from $ show color] <> selected
+    nameInput :: Text -> HtmlT STM ()
+    nameInput playerName =
+      input_
+        [ type_ "text",
+          name_ "playerName",
+          value_ playerName,
+          placeholder_ "Anonymous",
+          size_ "15",
+          maxlength_ "15",
+          class_ "h-8 text-center border border-slate-300 rounded-md focus:border-slate-400"
+        ]
+    startButton :: MSState -> HtmlT STM ()
+    startButton appState =
+      button_
+        [ type_ "submit",
+          class_ $ withThemeBorderColor appState.settings.color "300" "p-1 border-4 rounded"
+        ]
+        $ div_ [class_ "px-6 font-bold"] "Play"
+    levelButton :: MSLevel -> MSLevel -> HtmlT STM ()
+    levelButton selectedLevel level = do
+      input_ $
+        [name_ "level", id_ levelT, type_ "radio", value_ levelT]
+          <> if level == selectedLevel then [checked_] else mempty
+      label_ [for_ levelT] $ span_ [class_ levelS] $ toHtml levelT
+      where
+        levelT :: Text
+        levelT = from $ show level
+        levelS =
+          "ml-2" <> " " <> case level of
+            Baby -> "text-blue-700"
+            Beginner -> "text-blue-800"
+            Intermediate -> "text-green-700"
+            Expert -> "text-red-700"
+            Specialist -> "text-red-900"
+            Survivalist -> "text-violet-900"
