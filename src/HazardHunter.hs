@@ -3,11 +3,8 @@
 {-# HLINT ignore "Use if" #-}
 module HazardHunter where
 
--- import Butler hiding (HtmxEvent (body))
 import Butler
-import Butler.Auth.Guest (guestAuthApp)
-import Butler.Prelude
-import qualified ButlerDemos as BD
+import Butler.App (size)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (diffUTCTime)
@@ -18,12 +15,10 @@ import Text.Printf (printf)
 import Prelude
 
 run :: IO ()
-run = BD.run standaloneGuiApp
+run = void $ runMain $ spawnInitProcess ".butler-storage" $ standaloneGuiApp
 
-standaloneGuiApp :: ProcessIO ()
-standaloneGuiApp = BD.serveAppPerClient BD.defaultXFiles auth mineSweeperApp
-  where
-    auth = const . pure . guestAuthApp $ htmlMain BD.defaultXFiles "Standalone GUI" Nothing
+standaloneGuiApp :: ProcessIO Void
+standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
 
 htmlMain :: [XStaticFile] -> Text -> Maybe (Html ()) -> Html ()
 htmlMain xfiles title mHtml = do
@@ -40,13 +35,10 @@ htmlMain xfiles title mHtml = do
         forM_ mHtml id
 
 mineSweeperApp :: App
-mineSweeperApp =
-  App
-    { name = "minesweeper",
-      tags = fromList ["Game"],
+mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
+    { tags = fromList ["Game"],
       description = "game",
-      size = Just (240, 351),
-      start = startMineSweeper
+      Butler.App.size = Just (240, 351)
     }
 
 handleEvent :: DisplayClient -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
@@ -145,26 +137,26 @@ mkPlayDuration s curD = case s of
 diffTimeToFloat :: UTCTime -> UTCTime -> Float
 diffTimeToFloat a b = realToFrac $ diffUTCTime a b
 
-startMineSweeper :: AppStart
-startMineSweeper _clients wid pipeAE = do
+startMineSweeper :: AppContext -> ProcessIO ()
+startMineSweeper ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
   state <- newTVarIO $ MSState board Wait (MSSettings level "Anonymous" Blue hazard)
   forever $ do
-    res <- atomically =<< waitTransaction 60000 (readPipe pipeAE)
+    res <- atomically =<< waitTransaction 60000 (readPipe ctx.pipe)
     case res of
       WaitTimeout {} -> pure ()
       WaitCompleted (AppDisplay de) -> case de of
         UserConnected _ client -> do
-          atomically $ sendHtml client (renderApp wid state)
+          atomically $ sendHtml client (renderApp ctx.wid state)
           void . spawnThread $ asyncTimerUpdateThread state client
         _ -> pure ()
       WaitCompleted (AppTrigger ev) -> case ev of
         GuiEvent client tn td -> do
           appEventM <- toAppEvents tn td
           case appEventM of
-            Just appEvent -> handleEvent client wid appEvent state
+            Just appEvent -> handleEvent client ctx.wid appEvent state
             _ -> pure ()
       WaitCompleted _ -> pure ()
   where
