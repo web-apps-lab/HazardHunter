@@ -41,13 +41,13 @@ mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
       Butler.App.size = Just (240, 351)
     }
 
-handleEvent :: DisplayClient -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
-handleEvent client wId msEv appStateV = do
+handleEvent :: DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
+handleEvent clients wId msEv appStateV = do
   case msEv of
-    NewGame -> atomically $ do
-      modifyTVar' appStateV $ \s -> s {state = Wait}
-      sendHtml client $ renderPanel wId appStateV (Just 0.0)
-      sendHtml client $ renderSettings wId appStateV
+    NewGame -> do
+      atomically $ modifyTVar' appStateV $ \s -> s {state = Wait}
+      sendsHtml clients $ renderPanel wId appStateV (Just 0.0)
+      sendsHtml clients $ renderSettings wId appStateV
     SettingsSelected level playerName boardColor -> do
       newBoard <- liftIO . initBoard $ levelToBoardSettings level
       hazard <- liftIO randomHazard
@@ -58,15 +58,15 @@ handleEvent client wId msEv appStateV = do
               state = Wait,
               settings = MSSettings level playerName boardColor hazard
             }
-        sendHtml client $ renderApp wId appStateV
+      sendsHtml clients $ renderApp wId appStateV
     SetFlagMode -> do
-      atomically $ do
+      join $ atomically $ do
         appState <- readTVar appStateV
         case appState.state of
           Play st fm -> do
             modifyTVar' appStateV $ \s -> s {state = Play st (not fm)}
-            sendHtml client $ renderFlag wId appStateV
-          _ -> pure ()
+            pure $ sendsHtml clients $ renderFlag wId appStateV
+          _ -> pure $ pure ()
     ClickCell cellCoord -> do
       atTime <- liftIO getCurrentTime
       appState' <- readTVarIO appStateV
@@ -96,8 +96,8 @@ handleEvent client wId msEv appStateV = do
                         { board = openCell cellCoord appState.board,
                           state = Gameover
                         }
-                    sendHtml client $ renderBoard wId appStateV
-                    sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                  sendsHtml clients $ renderBoard wId appStateV
+                  sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
                 False -> do
                   let gs1 = openCell cellCoord appState.board
                       gs2 = openAdjBlank0Cells (levelToBoardSettings appState.settings.level) cellCoord gs1
@@ -105,21 +105,22 @@ handleEvent client wId msEv appStateV = do
                     True -> do
                       atomically $ do
                         modifyTVar' appStateV $ \s -> s {board = gs2, state = Win}
-                        sendHtml client $ renderBoard wId appStateV
-                        sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                      sendsHtml clients $ renderBoard wId appStateV
+                      sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
                     -- addScore dbConn appState.settings.playerName atTime playDuration appState.settings.level
                     -- leaderBoard <- renderLeaderBoard appStateV dbConn
                     -- pure [board, panel, leaderBoard]
                     False -> do
                       atomically $ do
                         modifyTVar' appStateV $ \s -> s {board = gs2}
-                        sendHtml client $ renderBoard wId appStateV
-                        sendHtml client $ renderSmiley wId appStateV
-        Play _ True -> atomically $ do
-          let board = setFlagOnCell cellCoord appState.board
-          modifyTVar' appStateV $ \s -> s {board}
-          sendHtml client $ renderFlag wId appStateV
-          sendHtml client $ renderBoard wId appStateV
+                      sendsHtml clients $ renderBoard wId appStateV
+                      sendsHtml clients $ renderSmiley wId appStateV
+        Play _ True -> do
+          atomically $ do
+            let board = setFlagOnCell cellCoord appState.board
+            modifyTVar' appStateV $ \s -> s {board}
+          sendsHtml clients $ renderFlag wId appStateV
+          sendsHtml clients $ renderBoard wId appStateV
         _ -> pure ()
   where
     ensureNFBoard :: MSBoard -> MSCellCoord -> MSLevel -> IO MSBoard
@@ -156,7 +157,7 @@ startMineSweeper ctx = do
         GuiEvent client tn td -> do
           appEventM <- toAppEvents tn td
           case appEventM of
-            Just appEvent -> handleEvent client ctx.wid appEvent state
+            Just appEvent -> handleEvent ctx.clients ctx.wid appEvent state
             _ -> pure ()
       WaitCompleted _ -> pure ()
   where
