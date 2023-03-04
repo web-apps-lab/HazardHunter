@@ -148,10 +148,7 @@ startMineSweeper ctx = do
   forever $ do
     res <- atomically (readPipe ctx.pipe)
     case res of
-      AppDisplay de -> case de of
-        UserConnected _ client -> do
-          atomically $ sendHtml client (renderApp ctx.wid state)
-        _ -> pure ()
+      AppDisplay _ -> sendHtmlOnConnect (renderApp ctx.wid state) res
       AppTrigger ev -> case ev of
         GuiEvent client tn td -> do
           appEventM <- toAppEvents tn td
