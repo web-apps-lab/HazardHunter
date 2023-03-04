@@ -8,16 +8,9 @@ import Butler
 import Butler.Auth.Guest (guestAuthApp)
 import Butler.Prelude
 import qualified ButlerDemos as BD
--- import qualified Data.Aeson as Aeson
--- import qualified Data.Aeson.KeyMap as Aeson
--- import qualified Data.Aeson.Text as Aeson
 import qualified Data.Map as Map
 import qualified Data.Text as T
--- import Data.Text.Lazy (toStrict)
-
--- import System.Random (randomRIO)
-
-import Data.Time (diffUTCTime, getCurrentTime)
+import Data.Time (diffUTCTime)
 import HazardHunter.Engine
 import HazardHunter.Htmx (mkHxVals)
 import Lucid.XStatic
@@ -60,7 +53,7 @@ handleEvent :: DisplayClient -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
 handleEvent client wId msEv appStateV = do
   case msEv of
     NewGame -> atomically $ do
-      -- writeTBQueue serviceQ StopTimer
+      modifyTVar' appStateV $ \s -> s {state = Wait}
       sendHtml client $ renderPanel wId appStateV (Just 0.0)
       sendHtml client $ renderSettings wId appStateV
     SettingsSelected level playerName boardColor -> do
@@ -87,15 +80,14 @@ handleEvent client wId msEv appStateV = do
       appState' <- readTVarIO appStateV
       case countOpenCells appState'.board of
         0 -> do
-          -- Ensure the first click on the board is not a hazard
           newBoard <- liftIO $ ensureNFBoard appState'.board cellCoord appState'.settings.level
           atomically $ modifyTVar' appStateV $ \s -> s {board = newBoard}
           pure ()
         _ -> pure ()
       case appState'.state of
-        Wait -> atomically $ do
-          modifyTVar' appStateV $ \s -> s {state = Play atTime False}
-        -- writeTBQueue serviceQ StartTimer
+        Wait -> do
+          atomically $ do
+            modifyTVar' appStateV $ \s -> s {state = Play atTime False}
         _ -> pure ()
       appState <- readTVarIO appStateV
       case appState.state of
@@ -106,7 +98,6 @@ handleEvent client wId msEv appStateV = do
             False -> do
               case isMineCell cellCoord appState.board of
                 True -> do
-                  -- writeTBQueue serviceQ StopTimer
                   atomically $ do
                     modifyTVar' appStateV $ \s ->
                       s
@@ -121,7 +112,6 @@ handleEvent client wId msEv appStateV = do
                   case countHiddenBlank gs2 == 0 of
                     True -> do
                       atomically $ do
-                        -- writeTBQueue serviceQ StopTimer
                         modifyTVar' appStateV $ \s -> s {board = gs2, state = Win}
                         sendHtml client $ renderBoard wId appStateV
                         sendHtml client $ renderPanel wId appStateV (Just playDuration)
@@ -139,18 +129,18 @@ handleEvent client wId msEv appStateV = do
           sendHtml client $ renderFlag wId appStateV
           sendHtml client $ renderBoard wId appStateV
         _ -> pure ()
-    _ -> pure ()
   where
-    mkPlayDuration :: MSGameState -> UTCTime -> Float
-    mkPlayDuration s curD = case s of
-      Play startDate _ -> diffTimeToFloat curD startDate
-      _ -> error "Should not happen"
     ensureNFBoard :: MSBoard -> MSCellCoord -> MSLevel -> IO MSBoard
     ensureNFBoard board cellCoord level = case isMineCell cellCoord board of
       True -> do
         newBoard <- initBoard $ levelToBoardSettings level
         ensureNFBoard newBoard cellCoord level
       False -> pure board
+
+mkPlayDuration :: MSGameState -> UTCTime -> Float
+mkPlayDuration s curD = case s of
+  Play startDate _ -> diffTimeToFloat curD startDate
+  _ -> error "Should not happen"
 
 diffTimeToFloat :: UTCTime -> UTCTime -> Float
 diffTimeToFloat a b = realToFrac $ diffUTCTime a b
@@ -166,7 +156,9 @@ startMineSweeper _clients wid pipeAE = do
     case res of
       WaitTimeout {} -> pure ()
       WaitCompleted (AppDisplay de) -> case de of
-        UserConnected _ client -> atomically $ sendHtml client (renderApp wid state)
+        UserConnected _ client -> do
+          atomically $ sendHtml client (renderApp wid state)
+          void . spawnThread $ asyncTimerUpdateThread state client
         _ -> pure ()
       WaitCompleted (AppTrigger ev) -> case ev of
         GuiEvent client tn td -> do
@@ -206,6 +198,19 @@ startMineSweeper _clients wid pipeAE = do
       _ -> do
         logInfo "Got unknown game event" ["TriggerName" .= tn]
         pure Nothing
+    asyncTimerUpdateThread :: TVar MSState -> DisplayClient -> ProcessIO ()
+    asyncTimerUpdateThread appStateV client = action
+      where
+        action = do
+          appState <- readTVarIO appStateV
+          case appState.state of
+            Play {} -> do
+              atTime <- liftIO getCurrentTime
+              let playDuration = mkPlayDuration appState.state atTime
+              atomically $ sendHtml client $ renderTimer playDuration
+            _ -> pure ()
+          sleep 990
+          action
 
 withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
 withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
@@ -215,7 +220,7 @@ withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> 
 renderApp :: WinID -> TVar MSState -> HtmlT STM ()
 renderApp wid state = do
   div_ [id_ (withWID wid "w"), class_ "w-60 border-2 border-gray-400 bg-gray-100"] $ do
-    renderPanel wid state Nothing
+    renderPanel wid state (Just 0.0)
     renderBoard wid state
 
 withThemeBgColor :: Color -> Text -> Text -> Text
