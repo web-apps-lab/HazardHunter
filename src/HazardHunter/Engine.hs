@@ -5,9 +5,6 @@
 
 module HazardHunter.Engine where
 
--- import Data.Time (UTCTime)
-
--- import Witch
 import Butler.Prelude
 import qualified Data.Map as Map
 import System.Random (randomRIO)
