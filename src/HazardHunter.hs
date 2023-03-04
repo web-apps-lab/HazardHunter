@@ -4,7 +4,6 @@
 module HazardHunter (run, mineSweeperApp) where
 
 import Butler
-import Butler.App (size)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (diffUTCTime)
@@ -23,8 +22,7 @@ standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
 mineSweeperApp :: App
 mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
     { tags = fromList ["Game"],
-      description = "game",
-      Butler.App.size = Just (240, 351)
+      description = "game"
     }
 
 handleEvent :: DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
@@ -191,7 +189,7 @@ withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> 
 
 renderApp :: WinID -> TVar MSState -> HtmlT STM ()
 renderApp wid state = do
-  div_ [id_ (withWID wid "w"), class_ "w-60 border-2 border-gray-400 bg-gray-100"] $ do
+  div_ [id_ (withWID wid "w"), class_ "border-2 border-gray-400 bg-gray-100"] $ do
     renderPanel wid state (Just 0.0)
     renderBoard wid state
 
