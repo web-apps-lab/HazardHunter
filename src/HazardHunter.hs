@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use if" #-}
-module HazardHunter where
+module HazardHunter (run, mineSweeperApp) where
 
 import Butler
 import Butler.App (size)
@@ -19,20 +19,6 @@ run = void $ runMain $ spawnInitProcess ".butler-storage" $ standaloneGuiApp
 
 standaloneGuiApp :: ProcessIO Void
 standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
-
-htmlMain :: [XStaticFile] -> Text -> Maybe (Html ()) -> Html ()
-htmlMain xfiles title mHtml = do
-  doctypehtml_ $ do
-    head_ $ do
-      title_ (toHtml title)
-      meta_ [charset_ "utf-8"]
-      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-      xstaticScripts xfiles
-
-    with body_ [class_ "font-mono cursor-default bg-stone-100 h-screen"] $ do
-      with div_ [id_ "display-ws", class_ "h-full", makeAttribute "hx-ext" "ws", makeAttribute "ws-connect" "/ws/htmx"] $ do
-        with div_ [id_ "w-0", class_ "h-full"] mempty
-        forM_ mHtml id
 
 mineSweeperApp :: App
 mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
