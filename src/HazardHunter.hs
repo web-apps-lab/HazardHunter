@@ -144,22 +144,21 @@ startMineSweeper ctx = do
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
   state <- newTVarIO $ MSState board Wait (MSSettings level "Anonymous" Blue hazard)
+  spawnThread_ $ asyncTimerUpdateThread state ctx.clients
   forever $ do
-    res <- atomically =<< waitTransaction 60000 (readPipe ctx.pipe)
+    res <- atomically (readPipe ctx.pipe)
     case res of
-      WaitTimeout {} -> pure ()
-      WaitCompleted (AppDisplay de) -> case de of
+      AppDisplay de -> case de of
         UserConnected _ client -> do
           atomically $ sendHtml client (renderApp ctx.wid state)
-          void . spawnThread $ asyncTimerUpdateThread state client
         _ -> pure ()
-      WaitCompleted (AppTrigger ev) -> case ev of
+      AppTrigger ev -> case ev of
         GuiEvent client tn td -> do
           appEventM <- toAppEvents tn td
           case appEventM of
             Just appEvent -> handleEvent ctx.clients ctx.wid appEvent state
             _ -> pure ()
-      WaitCompleted _ -> pure ()
+      _ -> pure ()
   where
     toAppEvents :: TriggerName -> Value -> ProcessIO (Maybe MSEvent)
     toAppEvents tn td = case tn of
@@ -191,19 +190,16 @@ startMineSweeper ctx = do
       _ -> do
         logInfo "Got unknown game event" ["TriggerName" .= tn]
         pure Nothing
-    asyncTimerUpdateThread :: TVar MSState -> DisplayClient -> ProcessIO ()
-    asyncTimerUpdateThread appStateV client = action
-      where
-        action = do
+    asyncTimerUpdateThread :: TVar MSState -> DisplayClients -> ProcessIO Void
+    asyncTimerUpdateThread appStateV clients = forever $ do
           appState <- readTVarIO appStateV
           case appState.state of
             Play {} -> do
               atTime <- liftIO getCurrentTime
               let playDuration = mkPlayDuration appState.state atTime
-              atomically $ sendHtml client $ renderTimer playDuration
+              sendsHtml clients $ renderTimer playDuration
             _ -> pure ()
           sleep 990
-          action
 
 withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
 withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
