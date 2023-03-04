@@ -21,7 +21,6 @@ instance Serialise MSState
 
 data MSSettings = MSSettings
   { level :: MSLevel,
-    playerName :: Text,
     color :: Color,
     hazard :: Hazard
   }
@@ -78,7 +77,7 @@ type MSBoard = Map.Map MSCellCoord MSCell
 data MSEvent
   = NewGame
   | ClickCell MSCellCoord
-  | SettingsSelected MSLevel Text Color
+  | SettingsSelected MSLevel Color
   | SetFlagMode
 
 data MSLevel

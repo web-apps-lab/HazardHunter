@@ -4,12 +4,13 @@
 module HazardHunter (run, mineSweeperApp) where
 
 import Butler
+import Butler.App (Display(..))
+import Butler.Display.Session (Session(..), UserName, changeUsername)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (diffUTCTime)
 import HazardHunter.Engine
 import HazardHunter.Htmx (mkHxVals)
-import Lucid.XStatic
 import Text.Printf (printf)
 import Prelude
 
@@ -25,14 +26,14 @@ mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
       description = "game"
     }
 
-handleEvent :: DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
-handleEvent clients wId msEv appStateV = do
+handleEvent :: UserName -> DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
+handleEvent username clients wId msEv appStateV = do
   case msEv of
     NewGame -> do
       atomically $ modifyTVar' appStateV $ \s -> s {state = Wait}
       sendsHtml clients $ renderPanel wId appStateV (Just 0.0)
-      sendsHtml clients $ renderSettings wId appStateV
-    SettingsSelected level playerName boardColor -> do
+      sendsHtml clients $ renderSettings username wId appStateV
+    SettingsSelected level boardColor -> do
       newBoard <- liftIO . initBoard $ levelToBoardSettings level
       hazard <- liftIO randomHazard
       atomically $ do
@@ -40,7 +41,7 @@ handleEvent clients wId msEv appStateV = do
           s
             { board = newBoard,
               state = Wait,
-              settings = MSSettings level playerName boardColor hazard
+              settings = MSSettings level boardColor hazard
             }
       sendsHtml clients $ renderApp wId appStateV
     SetFlagMode -> do
@@ -127,22 +128,22 @@ startMineSweeper ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
-  state <- newTVarIO $ MSState board Wait (MSSettings level "Anonymous" Blue hazard)
+  state <- newTVarIO $ MSState board Wait (MSSettings level Blue hazard)
   spawnThread_ $ asyncTimerUpdateThread state ctx.clients
   forever $ do
     res <- atomically (readPipe ctx.pipe)
     case res of
       AppDisplay _ -> sendHtmlOnConnect (renderApp ctx.wid state) res
-      AppTrigger ev -> case ev of
-        GuiEvent client tn td -> do
-          appEventM <- toAppEvents tn td
-          case appEventM of
-            Just appEvent -> handleEvent ctx.clients ctx.wid appEvent state
+      AppTrigger ev -> do
+          mAppEvent <- toAppEvents ev.client ev.trigger ev.body
+          username <- atomically (readTVar ev.client.session.username)
+          case mAppEvent of
+            Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent state
             _ -> pure ()
       _ -> pure ()
   where
-    toAppEvents :: TriggerName -> Value -> ProcessIO (Maybe MSEvent)
-    toAppEvents tn td = case tn of
+    toAppEvents :: DisplayClient -> TriggerName -> Value -> ProcessIO (Maybe MSEvent)
+    toAppEvents client tn td = case tn of
       TriggerName "play" -> do
         logInfo "Got <play> game event" []
         pure $ Just NewGame
@@ -162,11 +163,15 @@ startMineSweeper ctx = do
       TriggerName "setSettings" -> do
         logInfo "Got <setSettings> game event" ["data" .= td]
         case ( td ^? key "level" . _String,
-               td ^? key "playerName" . _String,
+               td ^? key "playerName" . _JSON,
                td ^? key "boardColor" . _String
              ) of
           (Just level, Just playerName, Just boardColor) -> do
-            pure . Just $ SettingsSelected (from level) playerName (from boardColor)
+            clientName <- atomically (readTVar client.session.username)
+            when (playerName /= clientName) $ do
+              unlessM (changeUsername ctx.shared.display.sessions client.session playerName) $
+                logError "Username already taken" ["name" .= playerName]
+            pure . Just $ SettingsSelected (from level) (from boardColor)
           _ -> pure Nothing
       _ -> do
         logInfo "Got unknown game event" ["TriggerName" .= tn]
@@ -306,11 +311,10 @@ renderBoard wid appStateV = do
                 Wait -> elm'
                 _ -> elm
 
-renderSettings :: WinID -> TVar MSState -> HtmlT STM ()
-renderSettings wid appStateV = do
+renderSettings :: UserName -> WinID -> TVar MSState -> HtmlT STM ()
+renderSettings username wid appStateV = do
   appState <- lift $ readTVar appStateV
-  let playerName = appState.settings.playerName
-      selectedLevel = appState.settings.level
+  let selectedLevel = appState.settings.level
   div_ [id_ "MSBoard"] $ do
     withEvent wid "setSettings" [] $ do
       form_ [class_ $ withThemeBgColor appState.settings.color "100" "flex flex-col items-center gap-px"] $ do
@@ -318,7 +322,7 @@ renderSettings wid appStateV = do
         label_ [class_ "m-1 font-semibold"] "Set the board color"
         colorInput appState.settings.color
         label_ [class_ "m-1 font-semibold"] "Set your name"
-        nameInput playerName
+        nameInput username
         label_ [class_ "m-1 font-semibold"] "Select a level"
         mapM_ (div_ . levelButton selectedLevel) [minBound .. maxBound]
   where
@@ -334,12 +338,12 @@ renderSettings wid appStateV = do
         setValue color =
           let selected = if colorFromSettings == color then [selected_ ""] else mempty
            in [value_ . from $ show color] <> selected
-    nameInput :: Text -> HtmlT STM ()
+    nameInput :: UserName -> HtmlT STM ()
     nameInput playerName =
       input_
         [ type_ "text",
           name_ "playerName",
-          value_ playerName,
+          value_ (into @Text playerName),
           placeholder_ "Anonymous",
           size_ "15",
           maxlength_ "15",

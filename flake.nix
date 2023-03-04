@@ -7,7 +7,7 @@
       "github:podenv/hspkgs/ba5d181089900f376f765e4a6889bd30c4f96993";
     flake-utils.url = "github:numtide/flake-utils";
     butler.url =
-      "github:TristanCacqueray/haskell-butler/f6c1c087bca56e348c6d2b214f19b1453bef1954";
+      "github:TristanCacqueray/haskell-butler/a34ad9b7c079f838e788905425cc84174e56e75b";
   };
 
   outputs = { self, hspkgs, flake-utils, butler }:
@@ -19,6 +19,7 @@
 
         haskellExtend = hpFinal: hpPrev: {
           appPackage = hpPrev.callCabal2nix packageName self { };
+          butler = pkgs.haskell.lib.dontHaddock hpPrev.butler;
         };
 
         hsPkgs = (pkgs.hspkgs.extend butler.haskellExtend).extend haskellExtend;
