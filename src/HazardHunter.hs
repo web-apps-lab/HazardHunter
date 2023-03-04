@@ -1,13 +1,9 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use if" #-}
-module HazardHunter where
+module HazardHunter (run, mineSweeperApp) where
 
--- import Butler hiding (HtmxEvent (body))
 import Butler
-import Butler.Auth.Guest (guestAuthApp)
-import Butler.Prelude
-import qualified ButlerDemos as BD
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (diffUTCTime)
@@ -18,44 +14,24 @@ import Text.Printf (printf)
 import Prelude
 
 run :: IO ()
-run = BD.run standaloneGuiApp
+run = void $ runMain $ spawnInitProcess ".butler-storage" $ standaloneGuiApp
 
-standaloneGuiApp :: ProcessIO ()
-standaloneGuiApp = BD.serveAppPerClient BD.defaultXFiles auth mineSweeperApp
-  where
-    auth = const . pure . guestAuthApp $ htmlMain BD.defaultXFiles "Standalone GUI" Nothing
-
-htmlMain :: [XStaticFile] -> Text -> Maybe (Html ()) -> Html ()
-htmlMain xfiles title mHtml = do
-  doctypehtml_ $ do
-    head_ $ do
-      title_ (toHtml title)
-      meta_ [charset_ "utf-8"]
-      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-      xstaticScripts xfiles
-
-    with body_ [class_ "font-mono cursor-default bg-stone-100 h-screen"] $ do
-      with div_ [id_ "display-ws", class_ "h-full", makeAttribute "hx-ext" "ws", makeAttribute "ws-connect" "/ws/htmx"] $ do
-        with div_ [id_ "w-0", class_ "h-full"] mempty
-        forM_ mHtml id
+standaloneGuiApp :: ProcessIO Void
+standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
 
 mineSweeperApp :: App
-mineSweeperApp =
-  App
-    { name = "minesweeper",
-      tags = fromList ["Game"],
-      description = "game",
-      size = Just (240, 351),
-      start = startMineSweeper
+mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
+    { tags = fromList ["Game"],
+      description = "game"
     }
 
-handleEvent :: DisplayClient -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
-handleEvent client wId msEv appStateV = do
+handleEvent :: DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
+handleEvent clients wId msEv appStateV = do
   case msEv of
-    NewGame -> atomically $ do
-      modifyTVar' appStateV $ \s -> s {state = Wait}
-      sendHtml client $ renderPanel wId appStateV (Just 0.0)
-      sendHtml client $ renderSettings wId appStateV
+    NewGame -> do
+      atomically $ modifyTVar' appStateV $ \s -> s {state = Wait}
+      sendsHtml clients $ renderPanel wId appStateV (Just 0.0)
+      sendsHtml clients $ renderSettings wId appStateV
     SettingsSelected level playerName boardColor -> do
       newBoard <- liftIO . initBoard $ levelToBoardSettings level
       hazard <- liftIO randomHazard
@@ -66,15 +42,15 @@ handleEvent client wId msEv appStateV = do
               state = Wait,
               settings = MSSettings level playerName boardColor hazard
             }
-        sendHtml client $ renderApp wId appStateV
+      sendsHtml clients $ renderApp wId appStateV
     SetFlagMode -> do
-      atomically $ do
+      join $ atomically $ do
         appState <- readTVar appStateV
         case appState.state of
           Play st fm -> do
             modifyTVar' appStateV $ \s -> s {state = Play st (not fm)}
-            sendHtml client $ renderFlag wId appStateV
-          _ -> pure ()
+            pure $ sendsHtml clients $ renderFlag wId appStateV
+          _ -> pure $ pure ()
     ClickCell cellCoord -> do
       atTime <- liftIO getCurrentTime
       appState' <- readTVarIO appStateV
@@ -104,8 +80,8 @@ handleEvent client wId msEv appStateV = do
                         { board = openCell cellCoord appState.board,
                           state = Gameover
                         }
-                    sendHtml client $ renderBoard wId appStateV
-                    sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                  sendsHtml clients $ renderBoard wId appStateV
+                  sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
                 False -> do
                   let gs1 = openCell cellCoord appState.board
                       gs2 = openAdjBlank0Cells (levelToBoardSettings appState.settings.level) cellCoord gs1
@@ -113,21 +89,22 @@ handleEvent client wId msEv appStateV = do
                     True -> do
                       atomically $ do
                         modifyTVar' appStateV $ \s -> s {board = gs2, state = Win}
-                        sendHtml client $ renderBoard wId appStateV
-                        sendHtml client $ renderPanel wId appStateV (Just playDuration)
+                      sendsHtml clients $ renderBoard wId appStateV
+                      sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
                     -- addScore dbConn appState.settings.playerName atTime playDuration appState.settings.level
                     -- leaderBoard <- renderLeaderBoard appStateV dbConn
                     -- pure [board, panel, leaderBoard]
                     False -> do
                       atomically $ do
                         modifyTVar' appStateV $ \s -> s {board = gs2}
-                        sendHtml client $ renderBoard wId appStateV
-                        sendHtml client $ renderSmiley wId appStateV
-        Play _ True -> atomically $ do
-          let board = setFlagOnCell cellCoord appState.board
-          modifyTVar' appStateV $ \s -> s {board}
-          sendHtml client $ renderFlag wId appStateV
-          sendHtml client $ renderBoard wId appStateV
+                      sendsHtml clients $ renderBoard wId appStateV
+                      sendsHtml clients $ renderSmiley wId appStateV
+        Play _ True -> do
+          atomically $ do
+            let board = setFlagOnCell cellCoord appState.board
+            modifyTVar' appStateV $ \s -> s {board}
+          sendsHtml clients $ renderFlag wId appStateV
+          sendsHtml clients $ renderBoard wId appStateV
         _ -> pure ()
   where
     ensureNFBoard :: MSBoard -> MSCellCoord -> MSLevel -> IO MSBoard
@@ -145,28 +122,24 @@ mkPlayDuration s curD = case s of
 diffTimeToFloat :: UTCTime -> UTCTime -> Float
 diffTimeToFloat a b = realToFrac $ diffUTCTime a b
 
-startMineSweeper :: AppStart
-startMineSweeper _clients wid pipeAE = do
+startMineSweeper :: AppContext -> ProcessIO ()
+startMineSweeper ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
   state <- newTVarIO $ MSState board Wait (MSSettings level "Anonymous" Blue hazard)
+  spawnThread_ $ asyncTimerUpdateThread state ctx.clients
   forever $ do
-    res <- atomically =<< waitTransaction 60000 (readPipe pipeAE)
+    res <- atomically (readPipe ctx.pipe)
     case res of
-      WaitTimeout {} -> pure ()
-      WaitCompleted (AppDisplay de) -> case de of
-        UserConnected _ client -> do
-          atomically $ sendHtml client (renderApp wid state)
-          void . spawnThread $ asyncTimerUpdateThread state client
-        _ -> pure ()
-      WaitCompleted (AppTrigger ev) -> case ev of
+      AppDisplay _ -> sendHtmlOnConnect (renderApp ctx.wid state) res
+      AppTrigger ev -> case ev of
         GuiEvent client tn td -> do
           appEventM <- toAppEvents tn td
           case appEventM of
-            Just appEvent -> handleEvent client wid appEvent state
+            Just appEvent -> handleEvent ctx.clients ctx.wid appEvent state
             _ -> pure ()
-      WaitCompleted _ -> pure ()
+      _ -> pure ()
   where
     toAppEvents :: TriggerName -> Value -> ProcessIO (Maybe MSEvent)
     toAppEvents tn td = case tn of
@@ -198,19 +171,16 @@ startMineSweeper _clients wid pipeAE = do
       _ -> do
         logInfo "Got unknown game event" ["TriggerName" .= tn]
         pure Nothing
-    asyncTimerUpdateThread :: TVar MSState -> DisplayClient -> ProcessIO ()
-    asyncTimerUpdateThread appStateV client = action
-      where
-        action = do
+    asyncTimerUpdateThread :: TVar MSState -> DisplayClients -> ProcessIO Void
+    asyncTimerUpdateThread appStateV clients = forever $ do
           appState <- readTVarIO appStateV
           case appState.state of
             Play {} -> do
               atTime <- liftIO getCurrentTime
               let playDuration = mkPlayDuration appState.state atTime
-              atomically $ sendHtml client $ renderTimer playDuration
+              sendsHtml clients $ renderTimer playDuration
             _ -> pure ()
           sleep 990
-          action
 
 withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
 withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
@@ -219,7 +189,7 @@ withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> 
 
 renderApp :: WinID -> TVar MSState -> HtmlT STM ()
 renderApp wid state = do
-  div_ [id_ (withWID wid "w"), class_ "w-60 border-2 border-gray-400 bg-gray-100"] $ do
+  div_ [id_ (withWID wid "w"), class_ "border-2 border-gray-400 bg-gray-100"] $ do
     renderPanel wid state (Just 0.0)
     renderBoard wid state
 
