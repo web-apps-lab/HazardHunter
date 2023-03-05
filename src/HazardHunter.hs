@@ -5,7 +5,6 @@ module HazardHunter (run, mineSweeperApp) where
 
 import Butler
 import Butler.App (Display (..))
-import Butler.Core (ProcessEnv (os), storage)
 import Butler.Core.Memory (MemoryVar, modifyMemoryVar, newMemoryVar, readMemoryVar)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
 import qualified Data.Map as Map
@@ -132,8 +131,8 @@ startMineSweeper ctx = do
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
   let msState = MSState board Wait (MSSettings level Blue hazard)
-  os <- asks os
-  (_, state) <- newMemoryVar os.storage "state.bin" (pure msState)
+      memAddr = "hazard-hunter-" <> showT ctx.wid <> ".bin"
+  (_, state) <- newProcessMemory (from memAddr) (pure msState)
   spawnThread_ $ asyncTimerUpdateThread state ctx.clients
   forever $ do
     res <- atomically (readPipe ctx.pipe)
