@@ -5,7 +5,6 @@ module HazardHunter (run, mineSweeperApp) where
 
 import Butler
 import Butler.App (Display (..))
-import Butler.Core.Memory (MemoryVar, modifyMemoryVar, newMemoryVar, readMemoryVar)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
 import qualified Data.Map as Map
 import qualified Data.Text as T
