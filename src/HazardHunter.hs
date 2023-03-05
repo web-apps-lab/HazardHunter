@@ -4,8 +4,8 @@
 module HazardHunter (run, mineSweeperApp) where
 
 import Butler
-import Butler.App (Display(..))
-import Butler.Display.Session (Session(..), UserName, changeUsername)
+import Butler.App (Display (..))
+import Butler.Display.Session (Session (..), UserName, changeUsername)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (diffUTCTime)
@@ -21,7 +21,8 @@ standaloneGuiApp :: ProcessIO Void
 standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
 
 mineSweeperApp :: App
-mineSweeperApp = (defaultApp "hazard-hunter" startMineSweeper)
+mineSweeperApp =
+  (defaultApp "hazard-hunter" startMineSweeper)
     { tags = fromList ["Game"],
       description = "game"
     }
@@ -135,11 +136,11 @@ startMineSweeper ctx = do
     case res of
       AppDisplay _ -> sendHtmlOnConnect (renderApp ctx.wid state) res
       AppTrigger ev -> do
-          mAppEvent <- toAppEvents ev.client ev.trigger ev.body
-          username <- atomically (readTVar ev.client.session.username)
-          case mAppEvent of
-            Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent state
-            _ -> pure ()
+        mAppEvent <- toAppEvents ev.client ev.trigger ev.body
+        username <- readTVarIO (ev.client.session.username)
+        case mAppEvent of
+          Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent state
+          _ -> pure ()
       _ -> pure ()
   where
     toAppEvents :: DisplayClient -> TriggerName -> Value -> ProcessIO (Maybe MSEvent)
@@ -167,7 +168,7 @@ startMineSweeper ctx = do
                td ^? key "boardColor" . _String
              ) of
           (Just level, Just playerName, Just boardColor) -> do
-            clientName <- atomically (readTVar client.session.username)
+            clientName <- readTVarIO (client.session.username)
             when (playerName /= clientName) $ do
               unlessM (changeUsername ctx.shared.display.sessions client.session playerName) $
                 logError "Username already taken" ["name" .= playerName]
@@ -178,14 +179,14 @@ startMineSweeper ctx = do
         pure Nothing
     asyncTimerUpdateThread :: TVar MSState -> DisplayClients -> ProcessIO Void
     asyncTimerUpdateThread appStateV clients = forever $ do
-          appState <- readTVarIO appStateV
-          case appState.state of
-            Play {} -> do
-              atTime <- liftIO getCurrentTime
-              let playDuration = mkPlayDuration appState.state atTime
-              sendsHtml clients $ renderTimer playDuration
-            _ -> pure ()
-          sleep 990
+      appState <- readTVarIO appStateV
+      case appState.state of
+        Play {} -> do
+          atTime <- liftIO getCurrentTime
+          let playDuration = mkPlayDuration appState.state atTime
+          sendsHtml clients $ renderTimer playDuration
+        _ -> pure ()
+      sleep 990
 
 withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
 withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
