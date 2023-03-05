@@ -5,6 +5,8 @@ module HazardHunter (run, mineSweeperApp) where
 
 import Butler
 import Butler.App (Display (..))
+import Butler.Core (ProcessEnv (os), storage)
+import Butler.Core.Memory (MemoryVar, modifyMemoryVar, newMemoryVar, readMemoryVar)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
 import qualified Data.Map as Map
 import qualified Data.Text as T
@@ -27,18 +29,18 @@ mineSweeperApp =
       description = "game"
     }
 
-handleEvent :: UserName -> DisplayClients -> WinID -> MSEvent -> TVar MSState -> ProcessIO ()
+handleEvent :: UserName -> DisplayClients -> WinID -> MSEvent -> MemoryVar MSState -> ProcessIO ()
 handleEvent username clients wId msEv appStateV = do
   case msEv of
     NewGame -> do
-      atomically $ modifyTVar' appStateV $ \s -> s {state = Wait}
+      atomically $ modifyMemoryVar appStateV $ \s -> s {state = Wait}
       sendsHtml clients $ renderPanel wId appStateV (Just 0.0)
       sendsHtml clients $ renderSettings username wId appStateV
     SettingsSelected level boardColor -> do
       newBoard <- liftIO . initBoard $ levelToBoardSettings level
       hazard <- liftIO randomHazard
       atomically $ do
-        modifyTVar' appStateV $ \s ->
+        modifyMemoryVar appStateV $ \s ->
           s
             { board = newBoard,
               state = Wait,
@@ -47,27 +49,27 @@ handleEvent username clients wId msEv appStateV = do
       sendsHtml clients $ renderApp wId appStateV
     SetFlagMode -> do
       join $ atomically $ do
-        appState <- readTVar appStateV
+        appState <- readMemoryVar appStateV
         case appState.state of
           Play st fm -> do
-            modifyTVar' appStateV $ \s -> s {state = Play st (not fm)}
+            modifyMemoryVar appStateV $ \s -> s {state = Play st (not fm)}
             pure $ sendsHtml clients $ renderFlag wId appStateV
           _ -> pure $ pure ()
     ClickCell cellCoord -> do
       atTime <- liftIO getCurrentTime
-      appState' <- readTVarIO appStateV
+      appState' <- atomically $ readMemoryVar appStateV
       case countOpenCells appState'.board of
         0 -> do
           newBoard <- liftIO $ ensureNFBoard appState'.board cellCoord appState'.settings.level
-          atomically $ modifyTVar' appStateV $ \s -> s {board = newBoard}
+          atomically $ modifyMemoryVar appStateV $ \s -> s {board = newBoard}
           pure ()
         _ -> pure ()
       case appState'.state of
         Wait -> do
           atomically $ do
-            modifyTVar' appStateV $ \s -> s {state = Play atTime False}
+            modifyMemoryVar appStateV $ \s -> s {state = Play atTime False}
         _ -> pure ()
-      appState <- readTVarIO appStateV
+      appState <- atomically $ readMemoryVar appStateV
       case appState.state of
         Play _ False -> do
           let playDuration = mkPlayDuration appState.state atTime
@@ -77,7 +79,7 @@ handleEvent username clients wId msEv appStateV = do
               case isMineCell cellCoord appState.board of
                 True -> do
                   atomically $ do
-                    modifyTVar' appStateV $ \s ->
+                    modifyMemoryVar appStateV $ \s ->
                       s
                         { board = openCell cellCoord appState.board,
                           state = Gameover
@@ -90,7 +92,7 @@ handleEvent username clients wId msEv appStateV = do
                   case countHiddenBlank gs2 == 0 of
                     True -> do
                       atomically $ do
-                        modifyTVar' appStateV $ \s -> s {board = gs2, state = Win}
+                        modifyMemoryVar appStateV $ \s -> s {board = gs2, state = Win}
                       sendsHtml clients $ renderBoard wId appStateV
                       sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
                     -- addScore dbConn appState.settings.playerName atTime playDuration appState.settings.level
@@ -98,13 +100,13 @@ handleEvent username clients wId msEv appStateV = do
                     -- pure [board, panel, leaderBoard]
                     False -> do
                       atomically $ do
-                        modifyTVar' appStateV $ \s -> s {board = gs2}
+                        modifyMemoryVar appStateV $ \s -> s {board = gs2}
                       sendsHtml clients $ renderBoard wId appStateV
                       sendsHtml clients $ renderSmiley wId appStateV
         Play _ True -> do
           atomically $ do
             let board = setFlagOnCell cellCoord appState.board
-            modifyTVar' appStateV $ \s -> s {board}
+            modifyMemoryVar appStateV $ \s -> s {board}
           sendsHtml clients $ renderFlag wId appStateV
           sendsHtml clients $ renderBoard wId appStateV
         _ -> pure ()
@@ -129,7 +131,9 @@ startMineSweeper ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
-  state <- newTVarIO $ MSState board Wait (MSSettings level Blue hazard)
+  let msState = MSState board Wait (MSSettings level Blue hazard)
+  os <- asks os
+  (_, state) <- newMemoryVar os.storage "state.bin" (pure msState)
   spawnThread_ $ asyncTimerUpdateThread state ctx.clients
   forever $ do
     res <- atomically (readPipe ctx.pipe)
@@ -177,9 +181,9 @@ startMineSweeper ctx = do
       _ -> do
         logInfo "Got unknown game event" ["TriggerName" .= tn]
         pure Nothing
-    asyncTimerUpdateThread :: TVar MSState -> DisplayClients -> ProcessIO Void
+    asyncTimerUpdateThread :: MemoryVar MSState -> DisplayClients -> ProcessIO Void
     asyncTimerUpdateThread appStateV clients = forever $ do
-      appState <- readTVarIO appStateV
+      appState <- atomically $ readMemoryVar appStateV
       case appState.state of
         Play {} -> do
           atTime <- liftIO getCurrentTime
@@ -193,7 +197,7 @@ withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> 
   where
     wsSend' = makeAttribute "ws-send"
 
-renderApp :: WinID -> TVar MSState -> HtmlT STM ()
+renderApp :: WinID -> MemoryVar MSState -> HtmlT STM ()
 renderApp wid state = do
   div_ [id_ (withWID wid "w"), class_ "border-2 border-gray-400 bg-gray-100"] $ do
     renderPanel wid state (Just 0.0)
@@ -221,9 +225,9 @@ renderTimer :: Float -> HtmlT STM ()
 renderTimer duration = do
   div_ [id_ "MSTimer", class_ "w-24 text-right pr-1"] $ toHtml $ toDurationT duration
 
-renderFlag :: WinID -> TVar MSState -> HtmlT STM ()
+renderFlag :: WinID -> MemoryVar MSState -> HtmlT STM ()
 renderFlag wid appStateV = do
-  appState <- lift $ readTVar appStateV
+  appState <- lift $ readMemoryVar appStateV
   let flagMode = case appState.state of
         Play _ True ->
           withThemeBgColor appState.settings.color "300" ""
@@ -235,9 +239,9 @@ renderFlag wid appStateV = do
         div_ [class_ $ withThemeBorderColor appState.settings.color "300" "cursor-pointer border-2 rounded" <> flagMode] "🚩"
       div_ . toHtml $ "(" <> show usedFlags <> ")"
 
-renderSmiley :: WinID -> TVar MSState -> HtmlT STM ()
+renderSmiley :: WinID -> MemoryVar MSState -> HtmlT STM ()
 renderSmiley wid appStateV = do
-  appState <- lift $ readTVar appStateV
+  appState <- lift $ readMemoryVar appStateV
   div_ [id_ "MSSmiley"] $
     withEvent wid "play" [] $
       div_ [class_ $ withThemeBorderColor appState.settings.color "300" "px-1 cursor-pointer border-2 rounded whitespace-nowrap"] $
@@ -249,11 +253,11 @@ renderSmiley wid appStateV = do
         )
           <> " New Game"
 
-renderPanel :: WinID -> TVar MSState -> Maybe Float -> HtmlT STM ()
+renderPanel :: WinID -> MemoryVar MSState -> Maybe Float -> HtmlT STM ()
 renderPanel wid appStateV durationM = do
   let smiley = renderSmiley wid appStateV
       flag = renderFlag wid appStateV
-  appState <- lift $ readTVar appStateV
+  appState <- lift $ readMemoryVar appStateV
   div_ [id_ "MSPanel", class_ $ withThemeBgColor appState.settings.color "200" "flex justify-between"] $ do
     let mineCount' = mineCount $ levelToBoardSettings appState.settings.level
     div_ [class_ "pl-1 w-24"] $ toHtml $ hazardLabel mineCount' appState.settings.hazard
@@ -264,9 +268,9 @@ renderPanel wid appStateV durationM = do
     hazardLabel :: Int -> Hazard -> Text
     hazardLabel count hazard = from (show count) <> " " <> hazardToText hazard
 
-renderBoard :: WinID -> TVar MSState -> HtmlT STM ()
+renderBoard :: WinID -> MemoryVar MSState -> HtmlT STM ()
 renderBoard wid appStateV = do
-  appState <- lift $ readTVar appStateV
+  appState <- lift $ readMemoryVar appStateV
   let sizeCount' = sizeCount $ levelToBoardSettings appState.settings.level
   let gridType = "grid-cols-[" <> T.intercalate "_" (Prelude.replicate (sizeCount' + 1) "20px") <> "]"
   div_ [id_ "MSBoard"] $ do
@@ -312,9 +316,9 @@ renderBoard wid appStateV = do
                 Wait -> elm'
                 _ -> elm
 
-renderSettings :: UserName -> WinID -> TVar MSState -> HtmlT STM ()
+renderSettings :: UserName -> WinID -> MemoryVar MSState -> HtmlT STM ()
 renderSettings username wid appStateV = do
-  appState <- lift $ readTVar appStateV
+  appState <- lift $ readMemoryVar appStateV
   let selectedLevel = appState.settings.level
   div_ [id_ "MSBoard"] $ do
     withEvent wid "setSettings" [] $ do
