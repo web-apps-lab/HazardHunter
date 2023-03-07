@@ -5,30 +5,55 @@ module HazardHunter (run, mineSweeperApp) where
 
 import Butler
 import Butler.App (Display (..))
+import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
 import qualified Data.Map as Map
 import qualified Data.Text as T
-import Data.Time (diffUTCTime)
+import Data.Time (defaultTimeLocale, diffUTCTime, formatTime)
 import HazardHunter.Engine
 import HazardHunter.Htmx (mkHxVals)
 import Text.Printf (printf)
 import Prelude
 
 run :: IO ()
-run = void $ runMain $ spawnInitProcess ".butler-storage" $ standaloneGuiApp
+run = void $
+  runMain $
+    spawnInitProcess ".butler-storage" $
+      withDatabase "leaderboard" migrations $ \db ->
+        serveApps publicDisplayApp [mineSweeperApp db]
+  where
+    migrations = dbSimpleCreate "scores" "id INTEGER PRIMARY KEY, name TEXT, date DATE, duration REAL, level TEXT"
 
-standaloneGuiApp :: ProcessIO Void
-standaloneGuiApp = serveApps publicDisplayApp [mineSweeperApp]
-
-mineSweeperApp :: App
-mineSweeperApp =
-  (defaultApp "hazard-hunter" startMineSweeper)
+mineSweeperApp :: Database -> App
+mineSweeperApp db =
+  (defaultApp "hazard-hunter" $ startMineSweeper db)
     { tags = fromList ["Game"],
       description = "game"
     }
 
-handleEvent :: UserName -> DisplayClients -> WinID -> MSEvent -> MemoryVar MSState -> ProcessIO ()
-handleEvent username clients wId msEv appStateV = do
+addScore :: Database -> Text -> UTCTime -> Float -> MSLevel -> IO ()
+addScore db name date duration level =
+  dbExecute
+    db
+    "INSERT INTO scores (name, date, duration, level) VALUES (:name,:date,:duration,:level)"
+    [":name" := name, ":date" := date, ":duration" := duration, ":level" := show level]
+
+getTopScores :: Database -> Integer -> MSLevel -> IO [Score]
+getTopScores db limit level =
+  dbQuery
+    db
+    "SELECT * from scores WHERE level = :level ORDER BY duration ASC LIMIT :limit"
+    [":level" := show level, ":limit" := show limit]
+
+handleEvent ::
+  UserName ->
+  DisplayClients ->
+  WinID ->
+  MSEvent ->
+  Database ->
+  MemoryVar MSState ->
+  ProcessIO ()
+handleEvent username clients wId msEv db appStateV = do
   case msEv of
     NewGame -> do
       atomically $ modifyMemoryVar appStateV $ \s -> s {state = Wait}
@@ -44,7 +69,8 @@ handleEvent username clients wId msEv appStateV = do
               state = Wait,
               settings = MSSettings level boardColor hazard
             }
-      sendsHtml clients $ renderApp wId appStateV
+      app <- liftIO $ renderApp wId db appStateV
+      sendsHtml clients app
     SetFlagMode -> do
       join $ atomically $ do
         appState <- readMemoryVar appStateV
@@ -93,9 +119,9 @@ handleEvent username clients wId msEv appStateV = do
                         modifyMemoryVar appStateV $ \s -> s {board = gs2, state = Win}
                       sendsHtml clients $ renderBoard wId appStateV
                       sendsHtml clients $ renderPanel wId appStateV (Just playDuration)
-                    -- addScore dbConn appState.settings.playerName atTime playDuration appState.settings.level
-                    -- leaderBoard <- renderLeaderBoard appStateV dbConn
-                    -- pure [board, panel, leaderBoard]
+                      liftIO $ addScore db (from username) atTime playDuration appState.settings.level
+                      leaderBoard <- liftIO $ renderLeaderBoard wId appStateV db
+                      sendsHtml clients leaderBoard
                     False -> do
                       atomically $ do
                         modifyMemoryVar appStateV $ \s -> s {board = gs2}
@@ -124,8 +150,8 @@ mkPlayDuration s curD = case s of
 diffTimeToFloat :: UTCTime -> UTCTime -> Float
 diffTimeToFloat a b = realToFrac $ diffUTCTime a b
 
-startMineSweeper :: AppContext -> ProcessIO ()
-startMineSweeper ctx = do
+startMineSweeper :: Database -> AppContext -> ProcessIO ()
+startMineSweeper db ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
@@ -136,12 +162,14 @@ startMineSweeper ctx = do
   forever $ do
     res <- atomically (readPipe ctx.pipe)
     case res of
-      AppDisplay _ -> sendHtmlOnConnect (renderApp ctx.wid state) res
+      AppDisplay _ -> do
+        app <- liftIO $ renderApp ctx.wid db state
+        sendHtmlOnConnect app res
       AppTrigger ev -> do
         mAppEvent <- toAppEvents ev.client ev.trigger ev.body
         username <- readTVarIO (ev.client.session.username)
         case mAppEvent of
-          Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent state
+          Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent db state
           _ -> pure ()
       _ -> pure ()
   where
@@ -195,11 +223,23 @@ withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> 
   where
     wsSend' = makeAttribute "ws-send"
 
-renderApp :: WinID -> MemoryVar MSState -> HtmlT STM ()
-renderApp wid state = do
-  div_ [id_ (withWID wid "w"), class_ "border-2 border-gray-400 bg-gray-100"] $ do
-    renderPanel wid state (Just 0.0)
-    renderBoard wid state
+renderApp :: WinID -> Database -> MemoryVar MSState -> IO (HtmlT STM ())
+renderApp wid db appStateV = do
+  leaderBoard <- liftIO $ renderLeaderBoard wid appStateV db
+  appState <- atomically $ readMemoryVar appStateV
+  pure $ div_ [id_ (withWID wid "w"), class_ "container mx-auto"] $ do
+    div_ [id_ (withWID wid "w"), class_ "flex flex-row justify-center"] $ do
+      div_ [id_ "MSMain", class_ "min-w-fit max-w-fit border-2 rounded border-gray-400 bg-gray-100"] $ do
+        div_ [class_ "flex flex-col"] $ do
+          div_ [class_ "border-solid rounded border-2 m-1 border-gray-300"] $ do
+            renderPanel wid appStateV (Just 0.0)
+            renderBoard wid appStateV
+          div_ [class_ "border-solid rounded border-2 m-1 border-gray-300"] $ do
+            leaderBoard
+          div_ [class_ $ withThemeBgColor appState.settings.color "200" ""] $ do
+            div_ [class_ "flex flex-row gap-2 flex-row-reverse pr-2"] $ do
+              div_ [] "- 1.0.0"
+              a_ [class_ "text-blue-600"] "HazardHunter"
 
 withThemeBgColor :: Color -> Text -> Text -> Text
 withThemeBgColor = withThemeColor "bg"
@@ -376,3 +416,21 @@ renderSettings username wid appStateV = do
             Expert -> "text-red-700"
             Specialist -> "text-red-900"
             Survivalist -> "text-violet-900"
+
+renderLeaderBoard :: WinID -> MemoryVar MSState -> Database -> IO (HtmlT STM ())
+renderLeaderBoard _wid appStateV db = do
+  appState <- atomically $ readMemoryVar appStateV
+  scores <- getTopScores db 10 appState.settings.level
+  pure $
+    div_ [id_ "MSLeaderBoard", class_ $ withThemeBgColor appState.settings.color "100" ""] $
+      case length scores of
+        0 -> p_ "The leaderboard is empty. Be the first to appear here !"
+        _ -> ol_ [] $ mapM_ displayScoreLine scores
+  where
+    displayScoreLine :: Score -> HtmlT STM ()
+    displayScoreLine Score {..} = do
+      li_ [] $ div_ [class_ "grid grid-cols-5 gap-1"] $ do
+        div_ [class_ "col-span-4"] $
+          toHtml $
+            formatTime defaultTimeLocale "%F" scoreDate <> " " <> from scoreName
+        div_ [class_ "col-span-1 text-right"] $ toHtml (toDurationT scoreDuration)

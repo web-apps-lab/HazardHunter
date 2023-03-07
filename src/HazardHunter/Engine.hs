@@ -7,6 +7,10 @@ module HazardHunter.Engine where
 
 import Butler.Prelude
 import qualified Data.Map as Map
+import qualified Database.SQLite.Simple as DB
+import qualified Database.SQLite.Simple.FromField as DB
+import qualified Database.SQLite.Simple.Internal as DB
+import qualified Database.SQLite.Simple.Ok as DB
 import System.Random (randomRIO)
 import Prelude
 
@@ -91,6 +95,10 @@ data MSLevel
 
 instance Serialise MSLevel
 
+instance DB.FromField MSLevel where
+  fromField (DB.Field (DB.SQLText txt) _) = DB.Ok . from $ txt
+  fromField f = DB.returnError DB.ConversionFailed f "need a valid text level"
+
 instance From Text MSLevel where
   from txt = case txt of
     "Baby" -> Baby
@@ -163,6 +171,18 @@ instance From Text Color where
     "Green" -> Green
     "Pink" -> Pink
     _ -> Blue
+
+data Score = Score
+  { scoreId :: Int,
+    scoreName :: Text,
+    scoreDate :: UTCTime,
+    scoreDuration :: Float,
+    scoreLevel :: MSLevel
+  }
+  deriving (Show)
+
+instance DB.FromRow Score where
+  fromRow = Score <$> DB.field <*> DB.field <*> DB.field <*> DB.field <*> DB.field
 
 initBoard :: MSBoardSettings -> IO MSBoard
 initBoard settings@MSBoardSettings {..} = do

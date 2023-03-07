@@ -41,6 +41,7 @@ common common-options
                     , websockets
                     , string-interpolate
                     , time
+                    , sqlite-simple
 
 library
     import:           common-options
