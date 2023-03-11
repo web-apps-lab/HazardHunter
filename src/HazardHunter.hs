@@ -7,11 +7,11 @@ import Butler
 import Butler.App (Display (..))
 import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
+import Data.Aeson (Value (Number))
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, diffUTCTime, formatTime)
 import HazardHunter.Engine
-import HazardHunter.Htmx (mkHxVals)
 import Text.Printf (printf)
 import Prelude
 
@@ -183,13 +183,12 @@ startMineSweeper db ctx = do
         pure $ Just SetFlagMode
       TriggerName "clickCell" -> do
         logInfo "Got <clickCell> game event" ["data" .= td]
-        case (td ^? key "cx" . _String, td ^? key "cy" . _String) of
-          (Just cxS, Just cyS) -> do
-            let cxM = readMaybe $ from cxS :: Maybe Int
-                cyM = readMaybe $ from cyS :: Maybe Int
-            case (cxM, cyM) of
-              (Just cx, Just cy) -> pure $ Just $ ClickCell (MSCellCoord cx cy)
-              _ -> pure Nothing
+        case (td ^? key "cx" . _Integer, td ^? key "cy" . _Integer) of
+          (Just cx, Just cy) ->
+            pure $
+              Just $
+                ClickCell
+                  (MSCellCoord (fromInteger $ toInteger cx) (fromInteger $ toInteger cy))
           _ -> pure Nothing
       TriggerName "setSettings" -> do
         logInfo "Got <setSettings> game event" ["data" .= td]
@@ -319,7 +318,12 @@ renderBoard wid appStateV = do
   where
     renderCell :: MSGameState -> Hazard -> Color -> (MSCellCoord, MSCell) -> HtmlT STM ()
     renderCell gameState hazard color (cellCoords, cellState) =
-      let cellId = mkHxVals [("cx", T.pack $ show $ cellCoords.cx), ("cy", T.pack $ show $ cellCoords.cy)]
+      -- let cellId = mkHxVals [("cx", T.pack $ show $ cellCoords.cx), ("cy", T.pack $ show $ cellCoords.cy)]
+      let cellId =
+            encodeVal
+              [ ("cx", Number $ fromInteger $ toInteger cellCoords.cx),
+                ("cy", Number $ fromInteger $ toInteger cellCoords.cy)
+              ]
        in installCellEvent gameState cellId $
             div_ [class_ $ withThemeBgColor color "100" "text-center cursor-pointer"] $
               case cellState of
