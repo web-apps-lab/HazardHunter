@@ -1,9 +1,11 @@
+{-# HLINT ignore "Use if" #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
-{-# HLINT ignore "Use if" #-}
-module HazardHunter (run, mineSweeperApp) where
+module HazardHunter (run, hazardHunterApp) where
 
 import Butler
+import Butler.App (Display (..))
 import Butler.Auth.Guest (guestAuthApp)
 import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
 import Butler.Display (DisplayApplication (..))
@@ -18,38 +20,40 @@ import Lucid.XStatic (xstaticScripts)
 import Text.Printf (printf)
 import Prelude
 
+hazardHunterApp :: Database -> App
+hazardHunterApp db =
+  (defaultApp "Hazard Hunter - Minesweeper like game - Find Hazards and Enter leaderboard !" $ startHH db)
+    { description =
+        "HazardHunter is a mini web game based on the legendary Minesweeper game's logic. "
+          <> "Goal is to discover various Hazards by guessing their places on the board. "
+          <> "Best scores are stored in the leaderboard !"
+    }
+
 run :: IO ()
-run = void $
-  runMain $
-    spawnInitProcess ".butler-storage" $
-      withDatabase "leaderboard" migrations $ \db ->
-        serveApps displayApp [mineSweeperApp db]
+run =
+  void $
+    runMain $
+      spawnInitProcess ".butler-storage" $
+        withDatabase "leaderboard" migrations runApp
   where
     migrations = dbSimpleCreate "scores" "id INTEGER PRIMARY KEY, name TEXT, date DATE, duration REAL, level TEXT"
-
-displayApp :: DisplayApplication
-displayApp = DisplayApplication auth
-  where
-    auth xfiles sessions = guestAuthApp sessions $ htmlMain xfiles "Standalone GUI"
-    htmlMain :: [XStaticFile] -> Text -> Html () -> Html ()
-    htmlMain xfiles title body = do
-      doctypehtml_ $ do
-        head_ $ do
-          title_ (toHtml title)
-          meta_ [charset_ "utf-8"]
-          meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-          xstaticScripts xfiles
-          script_ butlerHelpersScript
-
-        with body_ [class_ "font-mono cursor-default bg-stone-100 h-screen"] $ do
-          body
-
-mineSweeperApp :: Database -> App
-mineSweeperApp db =
-  (defaultApp "hazard-hunter" $ startMineSweeper db)
-    { tags = fromList ["Game"],
-      description = "game"
-    }
+    runApp db =
+      let app = hazardHunterApp db
+          displayApp = DisplayApplication (auth app)
+       in serveApps displayApp [app]
+      where
+        auth app xfiles sessions = guestAuthApp sessions $ htmlMain xfiles app
+        htmlMain :: [XStaticFile] -> App -> Html () -> Html ()
+        htmlMain xfiles app body = do
+          doctypehtml_ $ do
+            head_ $ do
+              title_ (toHtml app.name)
+              meta_ [charset_ "utf-8"]
+              meta_ [name_ "description", content_ app.description]
+              meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+              xstaticScripts $ xfiles <> app.xfiles
+              script_ butlerHelpersScript
+              body_ body
 
 addScore :: Database -> Text -> UTCTime -> Float -> MSLevel -> IO ()
 addScore db name date duration level =
@@ -170,8 +174,8 @@ mkPlayDuration s curD = case s of
 diffTimeToFloat :: UTCTime -> UTCTime -> Float
 diffTimeToFloat a b = realToFrac $ diffUTCTime a b
 
-startMineSweeper :: Database -> AppContext -> ProcessIO ()
-startMineSweeper db ctx = do
+startHH :: Database -> AppContext -> ProcessIO ()
+startHH db ctx = do
   let level = defaultLevel
   board <- liftIO $ initBoard $ levelToBoardSettings level
   hazard <- liftIO randomHazard
