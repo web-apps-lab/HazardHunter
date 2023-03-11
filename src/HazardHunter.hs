@@ -4,14 +4,17 @@
 module HazardHunter (run, mineSweeperApp) where
 
 import Butler
-import Butler.App (Display (..))
+import Butler.Auth.Guest (guestAuthApp)
 import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
+import Butler.Display (DisplayApplication (..))
 import Butler.Display.Session (Session (..), UserName, changeUsername)
+import Butler.Frame (butlerHelpersScript)
 import Data.Aeson (Value (Number))
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, diffUTCTime, formatTime)
 import HazardHunter.Engine
+import Lucid.XStatic (xstaticScripts)
 import Text.Printf (printf)
 import Prelude
 
@@ -20,9 +23,26 @@ run = void $
   runMain $
     spawnInitProcess ".butler-storage" $
       withDatabase "leaderboard" migrations $ \db ->
-        serveApps publicDisplayApp [mineSweeperApp db]
+        serveApps displayApp [mineSweeperApp db]
   where
     migrations = dbSimpleCreate "scores" "id INTEGER PRIMARY KEY, name TEXT, date DATE, duration REAL, level TEXT"
+
+displayApp :: DisplayApplication
+displayApp = DisplayApplication auth
+  where
+    auth xfiles sessions = guestAuthApp sessions $ htmlMain xfiles "Standalone GUI"
+    htmlMain :: [XStaticFile] -> Text -> Html () -> Html ()
+    htmlMain xfiles title body = do
+      doctypehtml_ $ do
+        head_ $ do
+          title_ (toHtml title)
+          meta_ [charset_ "utf-8"]
+          meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
+          xstaticScripts xfiles
+          script_ butlerHelpersScript
+
+        with body_ [class_ "font-mono cursor-default bg-stone-100 h-screen"] $ do
+          body
 
 mineSweeperApp :: Database -> App
 mineSweeperApp db =
