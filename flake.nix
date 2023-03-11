@@ -7,7 +7,7 @@
       "github:podenv/hspkgs/ba5d181089900f376f765e4a6889bd30c4f96993";
     flake-utils.url = "github:numtide/flake-utils";
     butler.url =
-      "github:TristanCacqueray/haskell-butler/68cde9a74c530c7652c1dadf9a487b35ec0d0ab4";
+      "github:TristanCacqueray/haskell-butler/416ce4b9d720aa69dc550e0adb2963344972694e";
   };
 
   outputs = { self, hspkgs, flake-utils, butler }:
