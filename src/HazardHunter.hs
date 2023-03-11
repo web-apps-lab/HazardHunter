@@ -6,28 +6,30 @@ module HazardHunter (run, hazardHunterApp) where
 
 import Butler
 import Butler.App (Display (..))
-import Butler.Auth.Guest (guestAuthApp)
+import Butler.Auth (PageDesc (PageDesc), PageTitle (..))
 import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
-import Butler.Display (DisplayApplication (..))
 import Butler.Display.Session (Session (..), UserName, changeUsername)
-import Butler.Frame (butlerHelpersScript)
 import Data.Aeson (Value (Number))
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, diffUTCTime, formatTime)
 import HazardHunter.Engine
-import Lucid.XStatic (xstaticScripts)
 import Text.Printf (printf)
 import Prelude
 
 hazardHunterApp :: Database -> App
 hazardHunterApp db =
-  (defaultApp "Hazard Hunter - Minesweeper like game - Find Hazards and Enter leaderboard !" $ startHH db)
-    { description =
+  let name = "Hazard Hunter"
+      tags = mempty
+      title = "Hazard Hunter - Minesweeper like game - Find Hazards and Enter leaderboard !"
+      description =
         "HazardHunter is a mini web game based on the legendary Minesweeper game's logic. "
           <> "Goal is to discover various Hazards by guessing their places on the board. "
           <> "Best scores are stored in the leaderboard !"
-    }
+      size = Nothing
+      xfiles = mempty
+      start = startHH db
+   in App {..}
 
 run :: IO ()
 run =
@@ -39,21 +41,7 @@ run =
     migrations = dbSimpleCreate "scores" "id INTEGER PRIMARY KEY, name TEXT, date DATE, duration REAL, level TEXT"
     runApp db =
       let app = hazardHunterApp db
-          displayApp = DisplayApplication (auth app)
-       in serveApps displayApp [app]
-      where
-        auth app xfiles sessions = guestAuthApp sessions $ htmlMain xfiles app
-        htmlMain :: [XStaticFile] -> App -> Html () -> Html ()
-        htmlMain xfiles app body = do
-          doctypehtml_ $ do
-            head_ $ do
-              title_ (toHtml app.name)
-              meta_ [charset_ "utf-8"]
-              meta_ [name_ "description", content_ app.description]
-              meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1.0"]
-              xstaticScripts $ xfiles <> app.xfiles
-              script_ butlerHelpersScript
-              body_ body
+       in serveApps (publicDisplayApp (PageTitle app.title) (Just $ PageDesc app.description)) [app]
 
 addScore :: Database -> Text -> UTCTime -> Float -> MSLevel -> IO ()
 addScore db name date duration level =
