@@ -23,13 +23,29 @@
         };
 
         hsPkgs = (pkgs.hspkgs.extend butler.haskellExtend).extend haskellExtend;
-
         appExe = pkgs.haskell.lib.justStaticExecutables hsPkgs.appPackage;
+
+        containerHome = "var/lib/${packageName}";
+        mkContainerHome = "mkdir -p -m 744 ${containerHome}";
+        container = pkgs.dockerTools.buildLayeredImage {
+          name = "localhost/hazard-hunter";
+          contents = [ pkgs.coreutils pkgs.bash appExe ];
+          extraCommands = "${mkContainerHome}";
+          tag = "latest";
+          created = "now";
+          config = {
+            Env = [
+              "HOME=/${containerHome}"
+              # Use fakeroot to avoid `No user exists for uid` error
+              "LD_PRELOAD=${pkgs.fakeroot}/lib/libfakeroot.so"
+            ];
+          };
+        };
 
       in {
         defaultExe = appExe;
         defaultPackage = hsPkgs.appPackage;
-
+        packages.container = container;
         devShell = hsPkgs.shellFor {
           packages = p: [ p.appPackage ];
 
