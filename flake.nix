@@ -29,8 +29,8 @@
         mkContainerHome = "mkdir -p -m 744 ${containerHome}";
         container = pkgs.dockerTools.buildLayeredImage {
           name = "localhost/hazard-hunter";
-          contents = [ pkgs.coreutils pkgs.bash appExe ];
-          extraCommands = "${mkContainerHome}";
+          contents = [ pkgs.coreutils pkgs.bash pkgs.openssl appExe ];
+          extraCommands = "${mkContainerHome} && mkdir -p -m 777 tmp";
           tag = "latest";
           created = "now";
           config = {
