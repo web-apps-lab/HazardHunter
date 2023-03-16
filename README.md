@@ -9,6 +9,12 @@ Play the game on [https://hazard-hunter.web-apps.top](https://hazard-hunter.web-
      width=300px;
      style="margin-right: 10px;" />
 
+
+HH is built on top of [ButlerOS](https://github.com/ButlerOS/haskell-butler).
+
+The game state is managed server side, the game UI is built server side too and the
+client's display (browser) leverages [hypermedia](https://htmx.org/essays/hypermedia-driven-applications/) via [htmx](https://htmx.org/).
+
 ## Start Hazard Hunter via the nix flake
 
 To run an app (for instance the HazardHunter app) from the nix flake:
