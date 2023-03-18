@@ -17,6 +17,9 @@ import HazardHunter.Engine
 import Text.Printf (printf)
 import Prelude
 
+version :: Text
+version = "1.0.1"
+
 hazardHunterApp :: Database -> App
 hazardHunterApp db =
   let name = "Hazard Hunter"
@@ -29,6 +32,7 @@ hazardHunterApp db =
       size = Nothing
       xfiles = mempty
       start = startHH db
+      acceptFiles = Nothing
    in App {..}
 
 run :: IO ()
@@ -249,8 +253,12 @@ renderApp wid db appStateV = do
             leaderBoard
           div_ [class_ $ withThemeBgColor appState.settings.color "200" ""] $ do
             div_ [class_ "flex flex-row gap-2 flex-row-reverse pr-2"] $ do
-              div_ [] "- 1.0.0"
-              a_ [class_ "text-blue-600"] "HazardHunter"
+              div_ [] (toHtml version)
+              a_
+                [ class_ "text-blue-600",
+                  href_ "https://github.com/web-apps-lab/HazardHunter"
+                ]
+                "HazardHunter"
 
 withThemeBgColor :: Color -> Text -> Text -> Text
 withThemeBgColor = withThemeColor "bg"
