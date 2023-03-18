@@ -21,14 +21,14 @@ To run an app (for instance the HazardHunter app) from the nix flake:
 
 ```
 nix run github:web-apps-lab/HazardHunter
-firefox http://127.0.0.1:8085
+firefox https://127.0.0.1:8085
 ```
 
 Or from the local checkout
 
 ```
 nix run .#
-firefox http://127.0.0.1:8085
+firefox https://127.0.0.1:8085
 ```
 
 ## Hack on the code
@@ -41,7 +41,7 @@ nix develop
 bin/run-ghcid
 
 # Open the browser to get interactive feedback
-firefox http://127.0.0.1:8085
+firefox https://127.0.0.1:8085
 
 # Run your code editor in the nix shell
 code .
