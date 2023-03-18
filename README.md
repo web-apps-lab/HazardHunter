@@ -17,7 +17,7 @@ client's display (browser) leverages [hypermedia](https://htmx.org/essays/hyperm
 
 ## Start Hazard Hunter via the nix flake
 
-To run an app (for instance the HazardHunter app) from the nix flake:
+Run from the nix flake:
 
 ```
 nix run github:web-apps-lab/HazardHunter
