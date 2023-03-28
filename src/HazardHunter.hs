@@ -5,7 +5,7 @@
 module HazardHunter (run, hazardHunterApp) where
 
 import Butler
-import Butler.App (Display (..))
+import Butler.App (Display (..), withEvent)
 import Butler.Auth (PageDesc (PageDesc), PageTitle (..))
 import Butler.Database (Database, NamedParam ((:=)), dbExecute, dbQuery, dbSimpleCreate, withDatabase)
 import Butler.Display.Session (Session (..), UserName, changeUsername)
@@ -64,7 +64,7 @@ getTopScores db limit level =
 handleEvent ::
   UserName ->
   DisplayClients ->
-  WinID ->
+  AppID ->
   MSEvent ->
   Database ->
   MemoryVar MSState ->
@@ -174,7 +174,7 @@ startHH db ctx = do
   let msState = MSState board Wait (MSSettings level Blue hazard)
       memAddr = "hazard-hunter-" <> showT ctx.wid <> ".bin"
   (_, state) <- newProcessMemory (from memAddr) (pure msState)
-  spawnThread_ $ asyncTimerUpdateThread state ctx.clients
+  spawnThread_ $ asyncTimerUpdateThread state ctx.shared.clients
   forever $ do
     res <- atomically (readPipe ctx.pipe)
     case res of
@@ -185,7 +185,7 @@ startHH db ctx = do
         mAppEvent <- toAppEvents ev.client ev.trigger ev.body
         username <- readTVarIO (ev.client.session.username)
         case mAppEvent of
-          Just appEvent -> handleEvent username ctx.clients ctx.wid appEvent db state
+          Just appEvent -> handleEvent username ctx.shared.clients ctx.wid appEvent db state
           _ -> pure ()
       _ -> pure ()
   where
@@ -233,12 +233,7 @@ startHH db ctx = do
         _ -> pure ()
       sleep 990
 
-withEvent :: Monad m => WinID -> Text -> [Attribute] -> HtmlT m () -> HtmlT m ()
-withEvent wid tId tAttrs elm = with elm ([id_ (withWID wid tId), wsSend' ""] <> tAttrs)
-  where
-    wsSend' = makeAttribute "ws-send"
-
-renderApp :: WinID -> Database -> MemoryVar MSState -> IO (HtmlT STM ())
+renderApp :: AppID -> Database -> MemoryVar MSState -> IO (HtmlT STM ())
 renderApp wid db appStateV = do
   leaderBoard <- liftIO $ renderLeaderBoard wid appStateV db
   appState <- atomically $ readMemoryVar appStateV
@@ -282,7 +277,7 @@ renderTimer :: Float -> HtmlT STM ()
 renderTimer duration = do
   div_ [id_ "MSTimer", class_ "w-24 text-right pr-1"] $ toHtml $ toDurationT duration
 
-renderFlag :: WinID -> MemoryVar MSState -> HtmlT STM ()
+renderFlag :: AppID -> MemoryVar MSState -> HtmlT STM ()
 renderFlag wid appStateV = do
   appState <- lift $ readMemoryVar appStateV
   let flagMode = case appState.state of
@@ -296,7 +291,7 @@ renderFlag wid appStateV = do
         div_ [class_ $ withThemeBorderColor appState.settings.color "300" "cursor-pointer border-2 rounded" <> flagMode] "🚩"
       div_ . toHtml $ "(" <> show usedFlags <> ")"
 
-renderSmiley :: WinID -> MemoryVar MSState -> HtmlT STM ()
+renderSmiley :: AppID -> MemoryVar MSState -> HtmlT STM ()
 renderSmiley wid appStateV = do
   appState <- lift $ readMemoryVar appStateV
   div_ [id_ "MSSmiley"] $
@@ -310,7 +305,7 @@ renderSmiley wid appStateV = do
         )
           <> " New Game"
 
-renderPanel :: WinID -> MemoryVar MSState -> Maybe Float -> HtmlT STM ()
+renderPanel :: AppID -> MemoryVar MSState -> Maybe Float -> HtmlT STM ()
 renderPanel wid appStateV durationM = do
   let smiley = renderSmiley wid appStateV
       flag = renderFlag wid appStateV
@@ -325,7 +320,7 @@ renderPanel wid appStateV durationM = do
     hazardLabel :: Int -> Hazard -> Text
     hazardLabel count hazard = from (show count) <> " " <> hazardToText hazard
 
-renderBoard :: WinID -> MemoryVar MSState -> HtmlT STM ()
+renderBoard :: AppID -> MemoryVar MSState -> HtmlT STM ()
 renderBoard wid appStateV = do
   appState <- lift $ readMemoryVar appStateV
   let sizeCount' = sizeCount $ levelToBoardSettings appState.settings.level
@@ -338,12 +333,10 @@ renderBoard wid appStateV = do
   where
     renderCell :: MSGameState -> Hazard -> Color -> (MSCellCoord, MSCell) -> HtmlT STM ()
     renderCell gameState hazard color (cellCoords, cellState) =
-      -- let cellId = mkHxVals [("cx", T.pack $ show $ cellCoords.cx), ("cy", T.pack $ show $ cellCoords.cy)]
       let cellId =
-            encodeVal
-              [ ("cx", Number $ fromInteger $ toInteger cellCoords.cx),
-                ("cy", Number $ fromInteger $ toInteger cellCoords.cy)
-              ]
+            [ ("cx", Number $ fromInteger $ toInteger cellCoords.cx),
+              ("cy", Number $ fromInteger $ toInteger cellCoords.cy)
+            ]
        in installCellEvent gameState cellId $
             div_ [class_ $ withThemeBgColor color "100" "text-center cursor-pointer"] $
               case cellState of
@@ -370,15 +363,15 @@ renderBoard wid appStateV = do
         flagCell = div_ [class_ $ withThemeBgColor color "300" "border-2 rounded border-r-gray-400 border-b-gray-400 h-6 w-full"] "🚩"
         showCellValue :: Int -> HtmlT STM ()
         showCellValue = toHtml . show
-        installCellEvent :: MSGameState -> Attribute -> HtmlT STM () -> HtmlT STM ()
+        installCellEvent :: MSGameState -> [Pair] -> HtmlT STM () -> HtmlT STM ()
         installCellEvent gs cellId elm =
-          let elm' = withEvent wid "clickCell" [cellId] elm
+          let elm' = withEvent wid "clickCell" cellId elm
            in case gs of
                 Play _ _ -> elm'
                 Wait -> elm'
                 _ -> elm
 
-renderSettings :: UserName -> WinID -> MemoryVar MSState -> HtmlT STM ()
+renderSettings :: UserName -> AppID -> MemoryVar MSState -> HtmlT STM ()
 renderSettings username wid appStateV = do
   appState <- lift $ readMemoryVar appStateV
   let selectedLevel = appState.settings.level
@@ -441,7 +434,7 @@ renderSettings username wid appStateV = do
             Specialist -> "text-red-900"
             Survivalist -> "text-violet-900"
 
-renderLeaderBoard :: WinID -> MemoryVar MSState -> Database -> IO (HtmlT STM ())
+renderLeaderBoard :: AppID -> MemoryVar MSState -> Database -> IO (HtmlT STM ())
 renderLeaderBoard _wid appStateV db = do
   appState <- atomically $ readMemoryVar appStateV
   scores <- getTopScores db 10 appState.settings.level

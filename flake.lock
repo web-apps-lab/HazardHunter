@@ -5,17 +5,17 @@
         "hspkgs": "hspkgs"
       },
       "locked": {
-        "lastModified": 1678965571,
-        "narHash": "sha256-EWEqbTyEsoIXAEzLB7bWdLlJ9EmFBPlDUcOiqWUXbHw=",
+        "lastModified": 1679868943,
+        "narHash": "sha256-KxFdYGB0vaHnrBK21HDLsW8HbAWXddtMduUtPOQMcnc=",
         "owner": "TristanCacqueray",
         "repo": "haskell-butler",
-        "rev": "303367e0fcb2999b1aea504fb50b920f1bfa5b37",
+        "rev": "bb44cb44f325c9cdc3d0435da40985d0340f899f",
         "type": "github"
       },
       "original": {
         "owner": "TristanCacqueray",
         "repo": "haskell-butler",
-        "rev": "303367e0fcb2999b1aea504fb50b920f1bfa5b37",
+        "rev": "bb44cb44f325c9cdc3d0435da40985d0340f899f",
         "type": "github"
       }
     },
