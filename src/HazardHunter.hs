@@ -33,6 +33,8 @@ hazardHunterApp db =
       xfiles = mempty
       start = startHH db
       acceptFiles = Nothing
+      settings = mempty
+      extraXfiles = mempty
    in App {..}
 
 run :: IO ()
@@ -83,7 +85,7 @@ handleEvent username clients wId msEv db appStateV = do
           s
             { board = newBoard,
               state = Wait,
-              settings = MSSettings level boardColor hazard
+              HazardHunter.Engine.settings = MSSettings level boardColor hazard
             }
       app <- liftIO $ renderApp wId db appStateV
       sendsHtml clients app

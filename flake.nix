@@ -4,10 +4,10 @@
 
   inputs = {
     hspkgs.url =
-      "github:podenv/hspkgs/ba5d181089900f376f765e4a6889bd30c4f96993";
+      "github:podenv/hspkgs/f6893161b29a8086c7e1232c886a99a5d815ffae";
     flake-utils.url = "github:numtide/flake-utils";
     butler.url =
-      "github:TristanCacqueray/haskell-butler/bb44cb44f325c9cdc3d0435da40985d0340f899f";
+      "github:TristanCacqueray/haskell-butler/16e6ffc28ede3191807b4207362cdaa86972b89c";
   };
 
   outputs = { self, hspkgs, flake-utils, butler }:
@@ -51,7 +51,7 @@
 
           buildInputs = with pkgs; [
             ghcid
-            ormolu
+            fourmolu
             cabal-install
             hlint
             haskell-language-server
