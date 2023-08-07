@@ -1,0 +1,1 @@
+find ./src/ ./app/ -name *.hs | xargs fourmolu -m inplace
