@@ -18,7 +18,7 @@ import Text.Printf (printf)
 import Prelude
 
 version :: Text
-version = "1.0.1"
+version = "1.0.2"
 
 hazardHunterApp :: Database -> App
 hazardHunterApp db =
@@ -439,17 +439,22 @@ renderSettings username wid appStateV = do
 renderLeaderBoard :: AppID -> MemoryVar MSState -> Database -> IO (HtmlT STM ())
 renderLeaderBoard _wid appStateV db = do
     appState <- atomically $ readMemoryVar appStateV
-    scores <- getTopScores db 10 appState.settings.level
+    scores <- getTopScores db 25 appState.settings.level
     pure $
         div_ [id_ "MSLeaderBoard", class_ $ withThemeBgColor appState.settings.color "100" ""] $
             case length scores of
                 0 -> p_ "The leaderboard is empty. Be the first to appear here !"
-                _ -> ol_ [] $ mapM_ displayScoreLine scores
+                _ -> mapM_ displayScoreLine $ zip [1 ..] scores
   where
-    displayScoreLine :: Score -> HtmlT STM ()
-    displayScoreLine Score{..} = do
-        li_ [] $ div_ [class_ "grid grid-cols-5 gap-1"] $ do
-            div_ [class_ "col-span-4"] $
-                toHtml $
-                    formatTime defaultTimeLocale "%F" scoreDate <> " " <> from scoreName
-            div_ [class_ "col-span-1 text-right"] $ toHtml (toDurationT scoreDuration)
+    displayScoreLine :: (Int, Score) -> HtmlT STM ()
+    displayScoreLine (index, Score{..}) = do
+        let bgColor = case index of
+                1 -> "pt-1 pb-1 font-bold bg-yellow-100"
+                2 -> "pt-1 pb-1 font-semibold bg-gray-300"
+                3 -> "pt-1 pb-1 font-semibold bg-amber-200"
+                _ -> ""
+        div_ [class_ $ "flex " <> bgColor] $ do
+            div_ [class_ "w-1/12 text-left"] $ toHtml $ show index
+            div_ [class_ "w-4/12"] $ toHtml $ formatTime defaultTimeLocale "%F" scoreDate
+            div_ [class_ "w-5/12"] $ toHtml scoreName
+            div_ [class_ "w-2/12 text-right"] $ toHtml (toDurationT scoreDuration)
