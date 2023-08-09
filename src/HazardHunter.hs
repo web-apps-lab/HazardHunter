@@ -18,7 +18,7 @@ import Text.Printf (printf)
 import Prelude
 
 version :: Text
-version = "1.0.2"
+version = "1.0.3"
 
 hazardHunterApp :: Database -> App
 hazardHunterApp db =
@@ -326,7 +326,7 @@ renderBoard :: AppID -> MemoryVar MSState -> HtmlT STM ()
 renderBoard wid appStateV = do
     appState <- lift $ readMemoryVar appStateV
     let sizeCount' = sizeCount $ levelToBoardSettings appState.settings.level
-    let gridType = "grid-cols-[" <> T.intercalate "_" (Prelude.replicate (sizeCount' + 1) "20px") <> "]"
+    let gridType = "grid-cols-[" <> T.intercalate "_" (Prelude.replicate (sizeCount' + 1) "19px") <> "]"
     div_ [id_ "MSBoard"] $ do
         div_ [class_ "flex place-content-center m-1"] $ do
             div_ [class_ $ "grid gap-1 " <> gridType] $ do
@@ -449,12 +449,12 @@ renderLeaderBoard _wid appStateV db = do
     displayScoreLine :: (Int, Score) -> HtmlT STM ()
     displayScoreLine (index, Score{..}) = do
         let bgColor = case index of
-                1 -> "pt-1 pb-1 font-bold bg-yellow-100"
-                2 -> "pt-1 pb-1 font-semibold bg-gray-300"
-                3 -> "pt-1 pb-1 font-semibold bg-amber-200"
+                1 -> "pt-1 pb-1 font-bold text-yellow-800"
+                2 -> "pt-1 pb-1 font-semibold text-yellow-700"
+                3 -> "pt-1 pb-1 font-semibold text-yellow-600"
                 _ -> ""
         div_ [class_ $ "flex " <> bgColor] $ do
-            div_ [class_ "w-1/12 text-left"] $ toHtml $ show index
+            div_ [class_ "w-1/12 pl-1 text-left"] $ toHtml $ show index
             div_ [class_ "w-4/12"] $ toHtml $ formatTime defaultTimeLocale "%F" scoreDate
             div_ [class_ "w-5/12"] $ toHtml scoreName
-            div_ [class_ "w-2/12 text-right"] $ toHtml (toDurationT scoreDuration)
+            div_ [class_ "w-2/12 pr-1 text-right"] $ toHtml (toDurationT scoreDuration)
